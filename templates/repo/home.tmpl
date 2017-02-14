@@ -34,7 +34,7 @@
 			</div>
 			<div class="right fitted item">
 				{{if .Repository.CanEnableEditor}}
-					<div id="file-buttons" class="ui tiny blue buttons">
+					<div id="file-buttons" class="ui tiny pink buttons">
 						{{if .CanAddFile}}
 							<a href="{{.RepoLink}}/_new/{{EscapePound .BranchName}}/{{EscapePound .TreePath}}" class="ui button">
 								{{.i18n.Tr "repo.editor.new_file"}}

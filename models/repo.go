@@ -966,7 +966,7 @@ func CreateRepository(u *User, opts CreateRepoOptions) (_ *Repository, err error
 		Description:  opts.Description,
 		IsPrivate:    opts.IsPrivate,
 		EnableWiki:   true,
-		EnableIssues: true,
+		EnableIssues: false,
 		EnablePulls:  true,
 	}
 

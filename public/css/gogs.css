@@ -1,3 +1,6 @@
+.octicon {
+  color: #f5467a;
+}
 .emoji {
   width: 1.5em;
   height: 1.5em;
@@ -852,12 +855,13 @@ footer .ui.language .menu {
 }
 .home .hero h1 {
   font-size: 5.5em;
+  color: #f5467a;
 }
 .home .hero h2 {
   font-size: 3em;
 }
 .home .hero .octicon {
-  color: #d9453d;
+  color: #f5467a;
   font-size: 40px;
   width: 50px;
 }
@@ -871,7 +875,7 @@ footer .ui.language .menu {
   padding-top: 30px;
 }
 .home a {
-  color: #d9453d;
+  color: #f5467a;
 }
 .signup {
   padding-top: 15px;
@@ -2754,7 +2758,7 @@ footer .ui.language .menu {
 }
 .dashboard.feeds .ui.right .head.menu .item.active,
 .dashboard.issues .ui.right .head.menu .item.active {
-  color: #d9453d;
+  color: #f5467a;
 }
 .feeds .news > .ui.grid {
   margin-left: auto;

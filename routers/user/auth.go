@@ -9,12 +9,13 @@ import (
 	"net/url"
 
 	"github.com/go-macaron/captcha"
+	log "gopkg.in/clog.v1"
 
 	"github.com/gogits/gogs/models"
 	"github.com/gogits/gogs/modules/auth"
 	"github.com/gogits/gogs/modules/base"
 	"github.com/gogits/gogs/modules/context"
-	"github.com/gogits/gogs/modules/log"
+	"github.com/gogits/gogs/modules/mailer"
 	"github.com/gogits/gogs/modules/setting"
 )
 
@@ -54,8 +55,7 @@ func AutoSignIn(ctx *context.Context) (bool, error) {
 		return false, nil
 	}
 
-	if val, _ := ctx.GetSuperSecureCookie(
-		base.EncodeMD5(u.Rands+u.Passwd), setting.CookieRememberName); val != u.Name {
+	if val, ok := ctx.GetSuperSecureCookie(u.Rands+u.Passwd, setting.CookieRememberName); !ok || val != u.Name {
 		return false, nil
 	}
 
@@ -64,6 +64,13 @@ func AutoSignIn(ctx *context.Context) (bool, error) {
 	ctx.Session.Set("uname", u.Name)
 	ctx.SetCookie(setting.CSRFCookieName, "", -1, setting.AppSubUrl)
 	return true, nil
+}
+
+// isValidRedirect returns false if the URL does not redirect to same site.
+// False: //url, http://url
+// True: /url
+func isValidRedirect(url string) bool {
+	return len(url) >= 2 && url[0] == '/' && url[1] != '/'
 }
 
 func SignIn(ctx *context.Context) {
@@ -82,10 +89,10 @@ func SignIn(ctx *context.Context) {
 	} else {
 		redirectTo, _ = url.QueryUnescape(ctx.GetCookie("redirect_to"))
 	}
+	ctx.SetCookie("redirect_to", "", -1, setting.AppSubUrl)
 
 	if isSucceed {
-		if len(redirectTo) > 0 {
-			ctx.SetCookie("redirect_to", "", -1, setting.AppSubUrl)
+		if isValidRedirect(redirectTo) {
 			ctx.Redirect(redirectTo)
 		} else {
 			ctx.Redirect(setting.AppSubUrl + "/")
@@ -116,9 +123,8 @@ func SignInPost(ctx *context.Context, form auth.SignInForm) {
 
 	if form.Remember {
 		days := 86400 * setting.LogInRememberDays
-		ctx.SetCookie(setting.CookieUserName, u.Name, days, setting.AppSubUrl)
-		ctx.SetSuperSecureCookie(base.EncodeMD5(u.Rands+u.Passwd),
-			setting.CookieRememberName, u.Name, days, setting.AppSubUrl)
+		ctx.SetCookie(setting.CookieUserName, u.Name, days, setting.AppSubUrl, "", setting.CookieSecure, true)
+		ctx.SetSuperSecureCookie(u.Rands+u.Passwd, setting.CookieRememberName, u.Name, days, setting.AppSubUrl, "", setting.CookieSecure, true)
 	}
 
 	ctx.Session.Set("uid", u.ID)
@@ -127,8 +133,9 @@ func SignInPost(ctx *context.Context, form auth.SignInForm) {
 	// Clear whatever CSRF has right now, force to generate a new one
 	ctx.SetCookie(setting.CSRFCookieName, "", -1, setting.AppSubUrl)
 
-	if redirectTo, _ := url.QueryUnescape(ctx.GetCookie("redirect_to")); len(redirectTo) > 0 {
-		ctx.SetCookie("redirect_to", "", -1, setting.AppSubUrl)
+	redirectTo, _ := url.QueryUnescape(ctx.GetCookie("redirect_to"))
+	ctx.SetCookie("redirect_to", "", -1, setting.AppSubUrl)
+	if isValidRedirect(redirectTo) {
 		ctx.Redirect(redirectTo)
 		return
 	}
@@ -228,7 +235,7 @@ func SignUpPost(ctx *context.Context, cpt *captcha.Captcha, form auth.RegisterFo
 
 	// Send confirmation email, no need for social account.
 	if setting.Service.RegisterEmailConfirm && u.ID > 1 {
-		models.SendActivateAccountMail(ctx.Context, u)
+		mailer.SendActivateAccountMail(ctx.Context, models.NewMailerUser(u))
 		ctx.Data["IsSendRegisterMail"] = true
 		ctx.Data["Email"] = u.Email
 		ctx.Data["Hours"] = setting.Service.ActiveCodeLives / 60
@@ -257,7 +264,7 @@ func Activate(ctx *context.Context) {
 				ctx.Data["ResendLimited"] = true
 			} else {
 				ctx.Data["Hours"] = setting.Service.ActiveCodeLives / 60
-				models.SendActivateAccountMail(ctx.Context, ctx.User)
+				mailer.SendActivateAccountMail(ctx.Context, models.NewMailerUser(ctx.User))
 
 				if err := ctx.Cache.Put("MailResendLimit_"+ctx.User.LowerName, ctx.User.LowerName, 180); err != nil {
 					log.Error(4, "Set cache(MailResendLimit) fail: %v", err)
@@ -367,7 +374,7 @@ func ForgotPasswdPost(ctx *context.Context) {
 		return
 	}
 
-	models.SendResetPasswordMail(ctx.Context, u)
+	mailer.SendResetPasswordMail(ctx.Context, models.NewMailerUser(u))
 	if err = ctx.Cache.Put("MailResendLimit_"+u.LowerName, u.LowerName, 180); err != nil {
 		log.Error(4, "Set cache(MailResendLimit) fail: %v", err)
 	}

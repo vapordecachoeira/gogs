@@ -65,7 +65,7 @@ func repoAssignment() macaron.Handler {
 		if ctx.IsSigned && ctx.User.IsAdmin {
 			ctx.Repo.AccessMode = models.ACCESS_MODE_OWNER
 		} else {
-			mode, err := models.AccessLevel(ctx.User, repo)
+			mode, err := models.AccessLevel(ctx.User.ID, repo)
 			if err != nil {
 				ctx.Error(500, "AccessLevel", err)
 				return
@@ -221,9 +221,13 @@ func RegisterRoutes(m *macaron.Macaron) {
 				m.Combo("/:id").Get(user.GetPublicKey).
 					Delete(user.DeletePublicKey)
 			})
+
+			m.Combo("/issues").Get(repo.ListUserIssues)
 		}, reqToken())
 
 		// Repositories
+		m.Get("/users/:username/repos", reqToken(), repo.ListUserRepositories)
+		m.Get("/orgs/:org/repos", reqToken(), repo.ListOrgRepositories)
 		m.Combo("/user/repos", reqToken()).Get(repo.ListMyRepos).
 			Post(bind(api.CreateRepoOption{}), repo.Create)
 		m.Post("/org/:org/repos", reqToken(), bind(api.CreateRepoOption{}), repo.CreateOrgRepo)
@@ -244,7 +248,11 @@ func RegisterRoutes(m *macaron.Macaron) {
 					m.Combo("/:id").Patch(bind(api.EditHookOption{}), repo.EditHook).
 						Delete(repo.DeleteHook)
 				})
-				m.Put("/collaborators/:collaborator", bind(api.AddCollaboratorOption{}), repo.AddCollaborator)
+				m.Group("/collaborators", func() {
+					m.Get("", repo.ListCollaborators)
+					m.Combo("/:collaborator").Get(repo.IsCollaborator).Put(bind(api.AddCollaboratorOption{}), repo.AddCollaborator).
+						Delete(repo.DeleteCollaborator)
+				})
 				m.Get("/raw/*", context.RepoRef(), repo.GetRawFile)
 				m.Get("/archive/*", repo.GetArchive)
 				m.Get("/forks", repo.ListForks)
@@ -299,6 +307,8 @@ func RegisterRoutes(m *macaron.Macaron) {
 				m.Get("/editorconfig/:filename", context.RepoRef(), repo.GetEditorconfig)
 			}, repoAssignment())
 		}, reqToken())
+
+		m.Get("/issues", reqToken(), repo.ListUserIssues)
 
 		// Organizations
 		m.Get("/user/orgs", reqToken(), org.ListMyOrgs)

@@ -10,42 +10,10 @@ import (
 	"os/exec"
 	"strings"
 
+	log "gopkg.in/clog.v1"
+
 	git "github.com/gogits/git-module"
-
-	"github.com/gogits/gogs/modules/log"
 )
-
-type UpdateTask struct {
-	ID          int64  `xorm:"pk autoincr"`
-	UUID        string `xorm:"index"`
-	RefName     string
-	OldCommitID string
-	NewCommitID string
-}
-
-func AddUpdateTask(task *UpdateTask) error {
-	_, err := x.Insert(task)
-	return err
-}
-
-// GetUpdateTaskByUUID returns update task by given UUID.
-func GetUpdateTaskByUUID(uuid string) (*UpdateTask, error) {
-	task := &UpdateTask{
-		UUID: uuid,
-	}
-	has, err := x.Get(task)
-	if err != nil {
-		return nil, err
-	} else if !has {
-		return nil, ErrUpdateTaskNotExist{uuid}
-	}
-	return task, nil
-}
-
-func DeleteUpdateTaskByUUID(uuid string) error {
-	_, err := x.Delete(&UpdateTask{UUID: uuid})
-	return err
-}
 
 // CommitToPushCommit transforms a git.Commit to PushCommit type.
 func CommitToPushCommit(commit *git.Commit) *PushCommit {
@@ -56,7 +24,7 @@ func CommitToPushCommit(commit *git.Commit) *PushCommit {
 		AuthorName:     commit.Author.Name,
 		CommitterEmail: commit.Committer.Email,
 		CommitterName:  commit.Committer.Name,
-		Timestamp:      commit.Author.When,
+		Timestamp:      commit.Committer.When,
 	}
 }
 
@@ -74,13 +42,13 @@ func ListToPushCommits(l *list.List) *PushCommits {
 }
 
 type PushUpdateOptions struct {
+	OldCommitID  string
+	NewCommitID  string
+	RefFullName  string
 	PusherID     int64
 	PusherName   string
 	RepoUserName string
 	RepoName     string
-	RefFullName  string
-	OldCommitID  string
-	NewCommitID  string
 }
 
 // PushUpdate must be called for any push actions in order to
@@ -101,7 +69,7 @@ func PushUpdate(opts PushUpdateOptions) (err error) {
 	}
 
 	if isDelRef {
-		log.GitLogger.Info("Reference '%s' has been deleted from '%s/%s' by %s",
+		log.Trace("Reference '%s' has been deleted from '%s/%s' by %s",
 			opts.RefFullName, opts.RepoUserName, opts.RepoName, opts.PusherName)
 		return nil
 	}

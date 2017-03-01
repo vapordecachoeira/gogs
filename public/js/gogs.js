@@ -212,38 +212,34 @@ function initInstall() {
     // Database type change detection.
     $("#db_type").change(function () {
         var sqliteDefault = 'data/gogs.db';
-        var tidbDefault = 'data/gogs_tidb';
 
         var dbType = $(this).val();
-        if (dbType === "SQLite3" || dbType === "TiDB") {
+        if (dbType === "SQLite3") {
             $('#sql_settings').hide();
             $('#pgsql_settings').hide();
             $('#sqlite_settings').show();
 
-            if (dbType === "SQLite3" && $('#db_path').val() == tidbDefault) {
+            if (dbType === "SQLite3") {
                 $('#db_path').val(sqliteDefault);
-            } else if (dbType === "TiDB" && $('#db_path').val() == sqliteDefault) {
-                $('#db_path').val(tidbDefault);
             }
             return;
         }
 
-        var mysqlDefault = '127.0.0.1:3306';
-        var postgresDefault = '127.0.0.1:5432';
+        var dbDefaults = {
+            "MySQL": "127.0.0.1:3306",
+            "PostgreSQL": "127.0.0.1:5432",
+            "MSSQL": "127.0.0.1, 1433"
+        };
 
         $('#sqlite_settings').hide();
         $('#sql_settings').show();
-        if (dbType === "PostgreSQL") {
-            $('#pgsql_settings').show();
-            if ($('#db_host').val() == mysqlDefault) {
-                $('#db_host').val(postgresDefault);
+        $('#pgsql_settings').toggle(dbType === "PostgreSQL");
+        $.each(dbDefaults, function(type, defaultHost) {
+            if ($('#db_host').val() == defaultHost) {
+                $('#db_host').val(dbDefaults[dbType]);
+                return false;
             }
-        } else {
-            $('#pgsql_settings').hide();
-            if ($('#db_host').val() == postgresDefault) {
-                $('#db_host').val(mysqlDefault);
-            }
-        }
+        });
     });
 
     // TODO: better handling of exclusive relations.
@@ -338,6 +334,18 @@ function initRepository() {
                 $($(this).data('target')).addClass('disabled');
             } else if (this.value == 'true') {
                 $($(this).data('target')).removeClass('disabled');
+            }
+        });
+    }
+
+    // Branches
+    if ($('.repository.settings.branches').length > 0) {
+        initFilterSearchDropdown('.protected-branches .dropdown');
+        $('.enable-protection, .enable-whitelist').change(function () {
+            if (this.checked) {
+                $($(this).data('target')).removeClass('disabled');
+            } else {
+                $($(this).data('target')).addClass('disabled');
             }
         });
     }
@@ -534,6 +542,20 @@ function initRepository() {
                 $item.find(".bar .add").css("width", addPercent + "%");
             });
         }
+
+        $('.diff-file-box .lines-num').click(function () {
+            if ($(this).attr('id')) {
+                window.location.href = '#' + $(this).attr('id');
+            }
+        });
+
+        $(window).on('hashchange', function (e) {
+            $('.diff-file-box .lines-code.active').removeClass('active');
+            var m = window.location.hash.match(/^#diff-.+$/);
+            if (m) {
+                $(m[0]).siblings('.lines-code').addClass('active');
+            }
+        }).trigger('hashchange');
     }
 
     // Quick start and repository home
@@ -908,6 +930,15 @@ function initWebhook() {
         }
     });
 
+    // Highlight payload on first click
+    $('.hook.history.list .toggle.button').click(function () {
+        $($(this).data('target') + ' .nohighlight').each(function () {
+            var $this = $(this);
+            $this.removeClass('nohighlight');
+            setTimeout(function(){ hljs.highlightBlock($this[0]) }, 500);
+        })
+    })
+
     // Test delivery
     $('#test-delivery').click(function () {
         var $this = $(this);
@@ -1142,7 +1173,7 @@ function searchRepositories() {
                 if (response.ok && response.data.length) {
                     var html = '';
                     $.each(response.data, function (i, item) {
-                        html += '<div class="item"><i class="icon octicon octicon-repo"></i> <span class="fullname">' + item.full_name + '</span></div>';
+                        html += '<div class="item"><i class="octicon octicon-repo"></i> <span class="fullname">' + item.full_name + '</span></div>';
                     });
                     $results.html(html);
                     $this.find('.results .item').click(function () {
@@ -1201,7 +1232,9 @@ $(document).ready(function () {
     });
 
     // Semantic UI modules.
-    $('.dropdown').dropdown();
+    $('.ui.dropdown').dropdown({
+        forceSelection: false
+    });
     $('.jump.dropdown').dropdown({
         action: 'hide',
         onShow: function () {

@@ -25,14 +25,14 @@ var wikiWorkingPool = sync.NewExclusivePool()
 
 // ToWikiPageURL formats a string to corresponding wiki URL name.
 func ToWikiPageURL(name string) string {
-	return url.QueryEscape(strings.Replace(name, " ", "-", -1))
+	return url.QueryEscape(name)
 }
 
 // ToWikiPageName formats a URL back to corresponding wiki page name,
 // and removes leading characters './' to prevent changing files
 // that are not belong to wiki repository.
 func ToWikiPageName(urlString string) string {
-	name, _ := url.QueryUnescape(strings.Replace(urlString, "-", " ", -1))
+	name, _ := url.QueryUnescape(urlString)
 	return strings.Replace(strings.TrimLeft(name, "./"), "/", " ", -1)
 }
 
@@ -64,8 +64,8 @@ func (repo *Repository) InitWiki() error {
 
 	if err := git.InitRepository(repo.WikiPath(), true); err != nil {
 		return fmt.Errorf("InitRepository: %v", err)
-	} else if err = createUpdateHook(repo.WikiPath()); err != nil {
-		return fmt.Errorf("createUpdateHook: %v", err)
+	} else if err = createDelegateHooks(repo.WikiPath()); err != nil {
+		return fmt.Errorf("createDelegateHooks: %v", err)
 	}
 	return nil
 }
@@ -76,9 +76,7 @@ func (repo *Repository) LocalWikiPath() string {
 
 // UpdateLocalWiki makes sure the local copy of repository wiki is up-to-date.
 func (repo *Repository) UpdateLocalWiki() error {
-	// Don't pass branch name here because it fails to clone and
-	// checkout to a specific branch when wiki is an empty repository.
-	return UpdateLocalCopyBranch(repo.WikiPath(), repo.LocalWikiPath(), "")
+	return UpdateLocalCopyBranch(repo.WikiPath(), repo.LocalWikiPath(), "master", true)
 }
 
 func discardLocalWikiChanges(localPath string) error {

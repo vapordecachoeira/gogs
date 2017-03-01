@@ -9,9 +9,6 @@ OS := $(shell uname)
 
 TAGS = ""
 BUILD_FLAGS = "-v"
-ifeq ($(OS),Linux)
-	BUILD_FLAGS += " -buildmode=pie"
-endif
 
 RELEASE_ROOT = "release"
 RELEASE_GOGS = "release/gogs"
@@ -73,7 +70,11 @@ test:
 	go test -cover -race ./...
 
 fixme:
-	grep -rnw "FIXME" routers models modules
+	grep -rnw "FIXME" cmd routers models modules
 
 todo:
-	grep -rnw "TODO" routers models modules
+	grep -rnw "TODO" cmd routers models modules
+
+# Legacy code should be remove by the time of release
+legacy:
+	grep -rnw "LEGACY" cmd routers models modules

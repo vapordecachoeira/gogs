@@ -6,7 +6,6 @@ package models
 
 import (
 	"encoding/json"
-	"errors"
 	"fmt"
 	"strings"
 
@@ -23,16 +22,6 @@ type SlackMeta struct {
 	Color    string `json:"color"`
 }
 
-type SlackPayload struct {
-	Channel     string            `json:"channel"`
-	Text        string            `json:"text"`
-	Username    string            `json:"username"`
-	IconURL     string            `json:"icon_url"`
-	UnfurlLinks int               `json:"unfurl_links"`
-	LinkNames   int               `json:"link_names"`
-	Attachments []SlackAttachment `json:"attachments"`
-}
-
 type SlackAttachment struct {
 	Fallback string `json:"fallback"`
 	Color    string `json:"color"`
@@ -40,7 +29,15 @@ type SlackAttachment struct {
 	Text     string `json:"text"`
 }
 
-func (p *SlackPayload) SetSecret(_ string) {}
+type SlackPayload struct {
+	Channel     string             `json:"channel"`
+	Text        string             `json:"text"`
+	Username    string             `json:"username"`
+	IconURL     string             `json:"icon_url"`
+	UnfurlLinks int                `json:"unfurl_links"`
+	LinkNames   int                `json:"link_names"`
+	Attachments []*SlackAttachment `json:"attachments"`
+}
 
 func (p *SlackPayload) JSONPayload() ([]byte, error) {
 	data, err := json.MarshalIndent(p, "", "  ")
@@ -73,7 +70,7 @@ func SlackLinkFormatter(url string, text string) string {
 }
 
 func getSlackCreatePayload(p *api.CreatePayload, slack *SlackMeta) (*SlackPayload, error) {
-	// created tag/branch
+	// Created tag/branch
 	refName := git.RefEndName(p.Ref)
 
 	repoLink := SlackLinkFormatter(p.Repo.HTMLURL, p.Repo.Name)
@@ -126,7 +123,7 @@ func getSlackPushPayload(p *api.PushPayload, slack *SlackMeta) (*SlackPayload, e
 		Text:     text,
 		Username: slack.Username,
 		IconURL:  slack.IconURL,
-		Attachments: []SlackAttachment{{
+		Attachments: []*SlackAttachment{{
 			Color: slack.Color,
 			Text:  attachmentText,
 		}},
@@ -173,7 +170,7 @@ func getSlackPullRequestPayload(p *api.PullRequestPayload, slack *SlackMeta) (*S
 		Text:     text,
 		Username: slack.Username,
 		IconURL:  slack.IconURL,
-		Attachments: []SlackAttachment{{
+		Attachments: []*SlackAttachment{{
 			Color: slack.Color,
 			Title: title,
 			Text:  attachmentText,
@@ -186,7 +183,7 @@ func GetSlackPayload(p api.Payloader, event HookEventType, meta string) (*SlackP
 
 	slack := &SlackMeta{}
 	if err := json.Unmarshal([]byte(meta), &slack); err != nil {
-		return s, errors.New("GetSlackPayload meta json:" + err.Error())
+		return s, fmt.Errorf("GetSlackPayload meta json: %v", err)
 	}
 
 	switch event {

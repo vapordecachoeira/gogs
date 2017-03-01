@@ -25,13 +25,13 @@ import (
 	"github.com/go-xorm/xorm"
 	"github.com/nfnt/resize"
 	"golang.org/x/crypto/pbkdf2"
+	log "gopkg.in/clog.v1"
 
 	"github.com/gogits/git-module"
 	api "github.com/gogits/go-gogs-client"
 
 	"github.com/gogits/gogs/modules/avatar"
 	"github.com/gogits/gogs/modules/base"
-	"github.com/gogits/gogs/modules/log"
 	"github.com/gogits/gogs/modules/markdown"
 	"github.com/gogits/gogs/modules/setting"
 )
@@ -170,6 +170,10 @@ func (u *User) CanCreateRepo() bool {
 	return u.NumRepos < u.MaxRepoCreation
 }
 
+func (u *User) CanCreateOrganization() bool {
+	return !setting.Admin.DisableRegularOrgCreation || u.IsAdmin
+}
+
 // CanEditGitHook returns true if user can edit Git hooks.
 func (u *User) CanEditGitHook() bool {
 	return u.IsAdmin || u.AllowGitHook
@@ -191,6 +195,10 @@ func (u *User) DashboardLink() string {
 // HomeLink returns the user or organization home page link.
 func (u *User) HomeLink() string {
 	return setting.AppSubUrl + "/" + u.Name
+}
+
+func (u *User) HTMLURL() string {
+	return setting.AppUrl + u.Name
 }
 
 // GenerateEmailActivateCode generates an activate code based on user information and given e-mail.
@@ -365,7 +373,7 @@ func (u *User) UploadAvatar(data []byte) error {
 
 // DeleteAvatar deletes the user's custom avatar.
 func (u *User) DeleteAvatar() error {
-	log.Trace("DeleteAvatar[%d]: %s", u.ID, u.CustomAvatarPath())
+	log.Trace("DeleteAvatar [%d]: %s", u.ID, u.CustomAvatarPath())
 	os.Remove(u.CustomAvatarPath())
 
 	u.UseCustomAvatar = false
@@ -377,18 +385,18 @@ func (u *User) DeleteAvatar() error {
 
 // IsAdminOfRepo returns true if user has admin or higher access of repository.
 func (u *User) IsAdminOfRepo(repo *Repository) bool {
-	has, err := HasAccess(u, repo, ACCESS_MODE_ADMIN)
+	has, err := HasAccess(u.ID, repo, ACCESS_MODE_ADMIN)
 	if err != nil {
-		log.Error(3, "HasAccess: %v", err)
+		log.Error(2, "HasAccess: %v", err)
 	}
 	return has
 }
 
 // IsWriterOfRepo returns true if user has write access to given repository.
 func (u *User) IsWriterOfRepo(repo *Repository) bool {
-	has, err := HasAccess(u, repo, ACCESS_MODE_WRITE)
+	has, err := HasAccess(u.ID, repo, ACCESS_MODE_WRITE)
 	if err != nil {
-		log.Error(3, "HasAccess: %v", err)
+		log.Error(2, "HasAccess: %v", err)
 	}
 	return has
 }
@@ -467,6 +475,12 @@ func (u *User) DisplayName() string {
 
 func (u *User) ShortName(length int) string {
 	return base.EllipsisString(u.Name, length)
+}
+
+// IsMailable checks if a user is elegible
+// to receive emails.
+func (u *User) IsMailable() bool {
+	return u.IsActive
 }
 
 // IsUserExist checks if given user name exist,
@@ -897,7 +911,7 @@ func GetUserByID(id int64) (*User, error) {
 
 // GetAssigneeByID returns the user with write access of repository by given ID.
 func GetAssigneeByID(repo *Repository, userID int64) (*User, error) {
-	has, err := HasAccess(&User{ID: userID}, repo, ACCESS_MODE_WRITE)
+	has, err := HasAccess(userID, repo, ACCESS_MODE_READ)
 	if err != nil {
 		return nil, err
 	} else if !has {
@@ -929,7 +943,9 @@ func GetUserEmailsByNames(names []string) []string {
 		if err != nil {
 			continue
 		}
-		mails = append(mails, u.Email)
+		if u.IsMailable() {
+			mails = append(mails, u.Email)
+		}
 	}
 	return mails
 }

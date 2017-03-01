@@ -13,13 +13,13 @@ import (
 	"strings"
 
 	"github.com/Unknwon/paginater"
+	log "gopkg.in/clog.v1"
 
 	"github.com/gogits/git-module"
 
 	"github.com/gogits/gogs/models"
 	"github.com/gogits/gogs/modules/base"
 	"github.com/gogits/gogs/modules/context"
-	"github.com/gogits/gogs/modules/log"
 	"github.com/gogits/gogs/modules/markdown"
 	"github.com/gogits/gogs/modules/setting"
 	"github.com/gogits/gogs/modules/template"
@@ -46,7 +46,7 @@ func renderDirectory(ctx *context.Context, treeLink string) {
 	}
 	entries.Sort()
 
-	ctx.Data["Files"], err = entries.GetCommitsInfo(ctx.Repo.Commit, ctx.Repo.TreePath)
+	ctx.Data["Files"], err = entries.GetCommitsInfoWithCustomConcurrency(ctx.Repo.Commit, ctx.Repo.TreePath, setting.Repository.CommitsFetchConcurrency)
 	if err != nil {
 		ctx.Handle(500, "GetCommitsInfo", err)
 		return
@@ -108,8 +108,7 @@ func renderDirectory(ctx *context.Context, treeLink string) {
 	ctx.Data["LatestCommit"] = latestCommit
 	ctx.Data["LatestCommitUser"] = models.ValidateCommitWithEmail(latestCommit)
 
-	// Check permission to add or upload new file.
-	if ctx.Repo.IsWriter() && ctx.Repo.IsViewBranch {
+	if ctx.Repo.CanEnableEditor() {
 		ctx.Data["CanAddFile"] = true
 		ctx.Data["CanUploadFile"] = setting.Repository.Upload.Enabled
 	}
@@ -142,6 +141,7 @@ func renderFile(ctx *context.Context, entry *git.TreeEntry, treeLink, rawLink st
 		ctx.Data["EditFileTooltip"] = ctx.Tr("repo.editor.cannot_edit_non_text_files")
 	}
 
+	canEnableEditor := ctx.Repo.CanEnableEditor()
 	switch {
 	case isTextFile:
 		if blob.Size() >= setting.UI.MaxDisplayFileSize {
@@ -155,6 +155,8 @@ func renderFile(ctx *context.Context, entry *git.TreeEntry, treeLink, rawLink st
 		isMarkdown := markdown.IsMarkdownFile(blob.Name())
 		ctx.Data["IsMarkdown"] = isMarkdown
 		ctx.Data["ReadmeExist"] = isMarkdown && markdown.IsReadmeFile(blob.Name())
+
+		ctx.Data["IsIPythonNotebook"] = strings.HasSuffix(blob.Name(), ".ipynb")
 
 		if isMarkdown {
 			ctx.Data["FileContent"] = string(markdown.Render(buf, path.Dir(treeLink), ctx.Repo.Repository.ComposeMetas()))
@@ -184,7 +186,7 @@ func renderFile(ctx *context.Context, entry *git.TreeEntry, treeLink, rawLink st
 			ctx.Data["LineNums"] = gotemplate.HTML(output.String())
 		}
 
-		if ctx.Repo.CanEnableEditor() {
+		if canEnableEditor {
 			ctx.Data["CanEditFile"] = true
 			ctx.Data["EditFileTooltip"] = ctx.Tr("repo.editor.edit_this_file")
 		} else if !ctx.Repo.IsViewBranch {
@@ -201,7 +203,7 @@ func renderFile(ctx *context.Context, entry *git.TreeEntry, treeLink, rawLink st
 		ctx.Data["IsImageFile"] = true
 	}
 
-	if ctx.Repo.CanEnableEditor() {
+	if canEnableEditor {
 		ctx.Data["CanDeleteFile"] = true
 		ctx.Data["DeleteFileTooltip"] = ctx.Tr("repo.editor.delete_this_file")
 	} else if !ctx.Repo.IsViewBranch {
@@ -211,12 +213,24 @@ func renderFile(ctx *context.Context, entry *git.TreeEntry, treeLink, rawLink st
 	}
 }
 
+func setEditorconfigIfExists(ctx *context.Context) {
+	ec, err := ctx.Repo.GetEditorconfig()
+	if err != nil && !git.IsErrNotExist(err) {
+		log.Trace("setEditorconfigIfExists.GetEditorconfig [%d]: %v", ctx.Repo.Repository.ID, err)
+		return
+	}
+	ctx.Data["Editorconfig"] = ec
+}
+
 func Home(ctx *context.Context) {
 	title := ctx.Repo.Repository.Owner.Name + "/" + ctx.Repo.Repository.Name
 	if len(ctx.Repo.Repository.Description) > 0 {
 		title += ": " + ctx.Repo.Repository.Description
 	}
 	ctx.Data["Title"] = title
+	if ctx.Repo.BranchName != ctx.Repo.Repository.DefaultBranch {
+		ctx.Data["Title"] = title + " @ " + ctx.Repo.BranchName
+	}
 	ctx.Data["PageIsViewCode"] = true
 	ctx.Data["RequireHighlightJS"] = true
 
@@ -244,12 +258,10 @@ func Home(ctx *context.Context) {
 		return
 	}
 
-	ec, err := ctx.Repo.GetEditorconfig()
-	if err != nil && !git.IsErrNotExist(err) {
-		ctx.Handle(500, "Repo.GetEditorconfig", err)
+	setEditorconfigIfExists(ctx)
+	if ctx.Written() {
 		return
 	}
-	ctx.Data["Editorconfig"] = ec
 
 	var treeNames []string
 	paths := make([]string, 0, 5)

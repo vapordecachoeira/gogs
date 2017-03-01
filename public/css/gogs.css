@@ -1,6 +1,3 @@
-.octicon {
-  color: #f5467a;
-}
 .emoji {
   width: 1.5em;
   height: 1.5em;
@@ -847,18 +844,15 @@ footer .ui.language .menu {
   padding-bottom: 80px;
 }
 .home .logo {
-  max-width: 220px;
-}
-.home .hero h1,
-.home .hero h2 {
-  font-family: 'PT Sans Narrow', sans-serif, 'Microsoft YaHei';
+  margin-bottom: 20px;
 }
 .home .hero h1 {
-  font-size: 5.5em;
+  font-size: 4.5em;
   color: #f5467a;
 }
 .home .hero h2 {
-  font-size: 3em;
+  margin-top: 0;
+  font-size: 2em;
 }
 .home .hero .octicon {
   color: #f5467a;
@@ -907,12 +901,17 @@ footer .ui.language .menu {
 .install .ui .checkbox label {
   width: auto !important;
 }
+.install #use-builtin-ssh-server {
+  margin-top: -1em;
+  margin-left: -15px !important;
+  margin-bottom: 2em;
+}
 .form .help {
   color: #999999;
   padding-top: .6em;
   padding-bottom: .6em;
   display: inline-block;
-  word-break: break-all;
+  word-break: break-word;
 }
 .ui.attached.header {
   background: #f0f0f0;
@@ -1232,7 +1231,6 @@ footer .ui.language .menu {
 }
 .repository.file.list #file-buttons {
   font-weight: normal;
-  margin-top: -3px;
 }
 .repository.file.list #file-buttons .ui.button {
   padding: 8px 10px;
@@ -1309,6 +1307,93 @@ footer .ui.language .menu {
 }
 .repository.file.list #file-content .view-raw img {
   margin-bottom: -5px;
+}
+.repository.file.list #file-content #ipython-notebook {
+  margin-left: 95px;
+  padding-top: 1px;
+}
+.repository.file.list #file-content #ipython-notebook .nb-notebook {
+  line-height: 1.5;
+}
+.repository.file.list #file-content #ipython-notebook .nb-stdout,
+.repository.file.list #file-content #ipython-notebook .nb-stderr {
+  white-space: pre-wrap;
+  margin: 1em 0;
+  padding: 0.1em 0.5em;
+}
+.repository.file.list #file-content #ipython-notebook .nb-stderr {
+  background-color: #FAA;
+}
+.repository.file.list #file-content #ipython-notebook .nb-cell + .nb-cell {
+  margin-top: 0.5em;
+}
+.repository.file.list #file-content #ipython-notebook .nb-cell {
+  position: relative;
+}
+.repository.file.list #file-content #ipython-notebook .nb-cell.nb-heading-cell {
+  margin-top: 0.5em;
+}
+.repository.file.list #file-content #ipython-notebook .nb-raw-cell {
+  white-space: pre-wrap;
+  background-color: #f5f2f0;
+  font-family: Consolas, Monaco, 'Andale Mono', monospace;
+  padding: 1em;
+  margin: .5em 0;
+}
+.repository.file.list #file-content #ipython-notebook .nb-input:before,
+.repository.file.list #file-content #ipython-notebook .nb-output:before {
+  position: absolute;
+  font-family: monospace;
+  color: #999;
+  left: -7.5em;
+  width: 7em;
+  text-align: right;
+}
+.repository.file.list #file-content #ipython-notebook .nb-input:before {
+  content: "In [" attr(data-prompt-number) "]:";
+}
+.repository.file.list #file-content #ipython-notebook .nb-input pre {
+  background-color: #f7f7f7;
+  margin-right: 10px;
+  padding: 5px 10px;
+}
+.repository.file.list #file-content #ipython-notebook .nb-input pre code {
+  min-height: 18px;
+  line-height: 18px;
+  font-size: 14px;
+}
+.repository.file.list #file-content #ipython-notebook .nb-output:before {
+  content: "Out [" attr(data-prompt-number) "]:";
+}
+.repository.file.list #file-content #ipython-notebook .nb-output pre {
+  padding: 5px 10px;
+  font-size: 14px;
+}
+.repository.file.list #file-content #ipython-notebook .nb-output img {
+  max-width: 100%;
+}
+.repository.file.list #file-content #ipython-notebook .nb-output table {
+  border: 1px solid #000;
+  border-collapse: collapse;
+}
+.repository.file.list #file-content #ipython-notebook .nb-output th {
+  font-weight: bold;
+}
+.repository.file.list #file-content #ipython-notebook .nb-output th,
+.repository.file.list #file-content #ipython-notebook .nb-output td {
+  border: 1px solid #000;
+  padding: 0.25em;
+  text-align: left;
+  vertical-align: middle;
+  border-collapse: collapse;
+}
+.repository.file.list #file-content #ipython-notebook .nb-markdown-cell {
+  margin-top: 10px;
+  margin-right: 10px;
+  padding: 10px;
+}
+.repository.file.list #file-content #ipython-notebook div[style="max-height:1000px;max-width:1500px;overflow:auto;"] {
+  max-height: none !important;
 }
 .repository.file.list #file-content .plain-text {
   font-size: 14px;
@@ -1981,8 +2066,15 @@ footer .ui.language .menu {
   border-right: 1px solid #d4d4d5;
   padding: 0 5px;
 }
-.repository .diff-file-box .code-diff tbody tr.tag-code td,
-.repository .diff-file-box .code-diff tbody tr.tag-code pre {
+.repository .diff-file-box .code-diff .lines-num.lines-num-old,
+.repository .diff-file-box .code-diff .lines-num.lines-num-new {
+  cursor: pointer;
+}
+.repository .diff-file-box .code-diff .lines-num.lines-num-old:hover,
+.repository .diff-file-box .code-diff .lines-num.lines-num-new:hover {
+  color: #383636;
+}
+.repository .diff-file-box .code-diff tbody tr.tag-code td {
   background-color: #F0F0F0 !important;
   border-color: #D2CECE!important;
   padding-top: 4px;
@@ -1990,6 +2082,9 @@ footer .ui.language .menu {
 }
 .repository .diff-file-box .code-diff tbody tr.tag-code td.halfwidth {
   width: 50%;
+}
+.repository .diff-file-box .code-diff tbody tr.same-code td.active {
+  background-color: #ffffdd !important;
 }
 .repository .diff-file-box .code-diff tbody tr.del-code td.add-code {
   background-color: #eaffea !important;
@@ -1999,21 +2094,25 @@ footer .ui.language .menu {
   background-color: #eaffea !important;
   border-color: #c1e9c1 !important;
 }
-.repository .diff-file-box .code-diff tbody tr.del-code td,
-.repository .diff-file-box .code-diff tbody tr.del-code pre {
+.repository .diff-file-box .code-diff tbody tr.del-code td {
   background-color: #ffecec !important;
   border-color: #f1c0c0 !important;
+}
+.repository .diff-file-box .code-diff tbody tr.del-code td.active {
+  background-color: #ffffdd !important;
 }
 .repository .diff-file-box .code-diff tbody tr.del-code td.halfwidth {
   width: 50%;
 }
-.repository .diff-file-box .code-diff tbody tr.add-code td,
-.repository .diff-file-box .code-diff tbody tr.add-code pre {
+.repository .diff-file-box .code-diff tbody tr.add-code td {
   background-color: #eaffea !important;
   border-color: #c1e9c1 !important;
 }
 .repository .diff-file-box .code-diff tbody tr.add-code td.halfwidth {
   width: 50%;
+}
+.repository .diff-file-box .code-diff tbody tr.add-code td.active {
+  background-color: #ffffdd !important;
 }
 .repository .diff-file-box .code-diff tbody tr .removed-code {
   background-color: #ff9999;
@@ -2193,6 +2292,36 @@ footer .ui.language .menu {
 .repository.settings.collaboration #repo-collab-form .ui.button {
   margin-left: 5px;
   margin-top: -3px;
+}
+.repository.settings.branches .protected-branches .selection.dropdown {
+  width: 300px;
+}
+.repository.settings.branches .protected-branches .item {
+  border: 1px solid #eaeaea;
+  padding: 10px 15px;
+}
+.repository.settings.branches .protected-branches .item:not(:last-child) {
+  border-bottom: 0;
+}
+.repository.settings.branches .branch-protection .help {
+  margin-left: 26px;
+  padding-top: 0;
+}
+.repository.settings.branches .branch-protection .fields {
+  margin-left: 20px;
+  display: block;
+}
+.repository.settings.branches .branch-protection .whitelist {
+  margin-left: 26px;
+}
+.repository.settings.branches .branch-protection .whitelist .dropdown img {
+  display: inline-block;
+}
+.repository.settings.webhooks .types .menu .item {
+  padding: 10px !important;
+}
+.repository.settings.webhook .text.desc {
+  margin-top: 5px;
 }
 .repository.settings.webhook .events .column {
   padding-bottom: 0;
@@ -2662,7 +2791,7 @@ footer .ui.language .menu {
 .user.settings .email.list .item:not(:first-child) .button {
   margin-top: -10px;
 }
-.user.settings .orgs {
+.user.settings .orgs.non-empty {
   padding: 0;
 }
 .user.settings .orgs .item {
@@ -2786,7 +2915,7 @@ footer .ui.language .menu {
   margin-bottom: -2px;
 }
 .feeds .news .push.news .content ul .text.truncate {
-  width: 80%;
+  width: 60%;
   margin-bottom: -5px;
 }
 .feeds .news .commit-id {

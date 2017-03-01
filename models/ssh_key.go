@@ -21,9 +21,9 @@ import (
 	"github.com/Unknwon/com"
 	"github.com/go-xorm/xorm"
 	"golang.org/x/crypto/ssh"
+	log "gopkg.in/clog.v1"
 
 	"github.com/gogits/gogs/modules/base"
-	"github.com/gogits/gogs/modules/log"
 	"github.com/gogits/gogs/modules/process"
 	"github.com/gogits/gogs/modules/setting"
 )
@@ -84,8 +84,13 @@ func (k *PublicKey) OmitEmail() string {
 }
 
 // AuthorizedString returns formatted public key string for authorized_keys file.
-func (key *PublicKey) AuthorizedString() string {
-	return fmt.Sprintf(_TPL_PUBLICK_KEY, setting.AppPath, key.ID, setting.CustomConf, key.Content)
+func (k *PublicKey) AuthorizedString() string {
+	return fmt.Sprintf(_TPL_PUBLICK_KEY, setting.AppPath, k.ID, setting.CustomConf, k.Content)
+}
+
+// IsDeployKey returns true if the public key is used as deploy key.
+func (k *PublicKey) IsDeployKey() bool {
+	return k.Type == KEY_TYPE_DEPLOY
 }
 
 func extractTypeFromBase64Key(key string) (string, error) {
@@ -380,9 +385,10 @@ func addKey(e Engine, key *PublicKey) (err error) {
 	if err = ioutil.WriteFile(tmpPath, []byte(key.Content), 0644); err != nil {
 		return err
 	}
-	stdout, stderr, err := process.Exec("AddPublicKey", "ssh-keygen", "-lf", tmpPath)
+
+	stdout, stderr, err := process.Exec("AddPublicKey", setting.SSH.KeygenPath, "-lf", tmpPath)
 	if err != nil {
-		return fmt.Errorf("'ssh-keygen -lf %s' failed with error '%s': %s", tmpPath, err, stderr)
+		return fmt.Errorf("fail to parse public key: %s - %s", err, stderr)
 	} else if len(stdout) < 2 {
 		return errors.New("not enough output for calculating fingerprint: " + stdout)
 	}
@@ -730,7 +736,7 @@ func DeleteDeployKey(doer *User, id int64) error {
 		if err != nil {
 			return fmt.Errorf("GetRepositoryByID: %v", err)
 		}
-		yes, err := HasAccess(doer, repo, ACCESS_MODE_ADMIN)
+		yes, err := HasAccess(doer.ID, repo, ACCESS_MODE_ADMIN)
 		if err != nil {
 			return fmt.Errorf("HasAccess: %v", err)
 		} else if !yes {

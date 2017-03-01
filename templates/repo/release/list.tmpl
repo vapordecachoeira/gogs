@@ -5,7 +5,7 @@
 		{{template "base/alert" .}}
 		<h2 class="ui header">
 			{{.i18n.Tr "repo.release.releases"}}
-			{{if .IsRepositoryWriter}}
+			{{if and .IsRepositoryWriter (not .Repository.IsMirror)}}
 				<div class="ui right">
 					<a class="ui small green button" href="{{$.RepoLink}}/releases/new">
 						{{.i18n.Tr "repo.release.new_release"}}
@@ -42,7 +42,7 @@
 							<p class="text grey">
 								<span class="author">
 									<img class="img-10" src="{{.Publisher.RelAvatarLink}}">
-									<a href="{{AppSubUrl}}/{{.Publisher.Name}}">{{.Publisher.Name}}</a>
+									<a href="{{AppSubUrl}}/{{.Publisher.Name}}">{{.Publisher.DisplayName}}</a>
 								</span>
 								{{if .Created}}<span class="time">{{TimeSince .Created $.Lang}}</span>{{end}}
 								<span class="ahead">{{$.i18n.Tr "repo.release.ahead" .NumCommitsBehind .Target | Str2html}}</span>
@@ -75,6 +75,14 @@
 				</li>
 			{{end}}
 		</ul>
+		<div class="center">
+			<a class="ui small button {{if not .HasPrevious}}disabled{{end}}" {{if .HasPrevious}}href="{{$.Link}}?after={{.PreviousAfter}}"{{end}}>
+				{{$.i18n.Tr "repo.issues.previous"}}
+			</a>
+			<a class="ui small button {{if .ReachEnd}}disabled{{end}}" {{if not .ReachEnd}}href="{{$.Link}}?after={{.NextAfter}}"{{end}}>
+				{{$.i18n.Tr "repo.issues.next"}}
+			</a>
+		</div>
 	</div>
 </div>
 {{template "base/footer" .}}

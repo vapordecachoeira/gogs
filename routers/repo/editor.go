@@ -11,12 +11,13 @@ import (
 	"path"
 	"strings"
 
+	log "gopkg.in/clog.v1"
+
 	"github.com/gogits/git-module"
 	"github.com/gogits/gogs/models"
 	"github.com/gogits/gogs/modules/auth"
 	"github.com/gogits/gogs/modules/base"
 	"github.com/gogits/gogs/modules/context"
-	"github.com/gogits/gogs/modules/log"
 	"github.com/gogits/gogs/modules/setting"
 	"github.com/gogits/gogs/modules/template"
 )
@@ -28,16 +29,28 @@ const (
 	UPLOAD_FILE       base.TplName = "repo/editor/upload"
 )
 
+// getParentTreeFields returns list of parent tree names and corresponding tree paths
+// based on given tree path.
+func getParentTreeFields(treePath string) (treeNames []string, treePaths []string) {
+	if len(treePath) == 0 {
+		return treeNames, treePaths
+	}
+
+	treeNames = strings.Split(treePath, "/")
+	treePaths = make([]string, len(treeNames))
+	for i := range treeNames {
+		treePaths[i] = strings.Join(treeNames[:i+1], "/")
+	}
+	return treeNames, treePaths
+}
+
 func editFile(ctx *context.Context, isNewFile bool) {
 	ctx.Data["PageIsEdit"] = true
 	ctx.Data["IsNewFile"] = isNewFile
 	ctx.Data["RequireHighlightJS"] = true
 	ctx.Data["RequireSimpleMDE"] = true
 
-	var treeNames []string
-	if len(ctx.Repo.TreePath) > 0 {
-		treeNames = strings.Split(ctx.Repo.TreePath, "/")
-	}
+	treeNames, treePaths := getParentTreeFields(ctx.Repo.TreePath)
 
 	if !isNewFile {
 		entry, err := ctx.Repo.Commit.GetTreeEntryByPath(ctx.Repo.TreePath)
@@ -87,6 +100,7 @@ func editFile(ctx *context.Context, isNewFile bool) {
 	}
 
 	ctx.Data["TreeNames"] = treeNames
+	ctx.Data["TreePaths"] = treePaths
 	ctx.Data["BranchLink"] = ctx.Repo.RepoLink + "/src/" + ctx.Repo.BranchName
 	ctx.Data["commit_summary"] = ""
 	ctx.Data["commit_message"] = ""
@@ -121,19 +135,16 @@ func editFilePost(ctx *context.Context, form auth.EditRepoFileForm, isNewFile bo
 	lastCommit := form.LastCommit
 	form.LastCommit = ctx.Repo.Commit.ID.String()
 
-	if form.CommitChoice == "commit-to-new-branch" {
+	if form.IsNewBrnach() {
 		branchName = form.NewBranchName
 	}
 
 	form.TreePath = strings.Trim(form.TreePath, " /")
-
-	var treeNames []string
-	if len(form.TreePath) > 0 {
-		treeNames = strings.Split(form.TreePath, "/")
-	}
+	treeNames, treePaths := getParentTreeFields(form.TreePath)
 
 	ctx.Data["TreePath"] = form.TreePath
 	ctx.Data["TreeNames"] = treeNames
+	ctx.Data["TreePaths"] = treePaths
 	ctx.Data["BranchLink"] = ctx.Repo.RepoLink + "/src/" + branchName
 	ctx.Data["FileContent"] = form.Content
 	ctx.Data["commit_summary"] = form.CommitSummary
@@ -268,7 +279,11 @@ func editFilePost(ctx *context.Context, form auth.EditRepoFileForm, isNewFile bo
 		return
 	}
 
-	ctx.Redirect(ctx.Repo.RepoLink + "/src/" + branchName + "/" + template.EscapePound(form.TreePath))
+	if form.IsNewBrnach() && ctx.Repo.PullRequest.Allowed {
+		ctx.Redirect(ctx.Repo.PullRequestURL(oldBranchName, form.NewBranchName))
+	} else {
+		ctx.Redirect(ctx.Repo.RepoLink + "/src/" + branchName + "/" + template.EscapePound(form.TreePath))
+	}
 }
 
 func EditFilePost(ctx *context.Context, form auth.EditRepoFileForm) {
@@ -325,7 +340,7 @@ func DeleteFilePost(ctx *context.Context, form auth.DeleteRepoFileForm) {
 	oldBranchName := ctx.Repo.BranchName
 	branchName := oldBranchName
 
-	if form.CommitChoice == "commit-to-new-branch" {
+	if form.IsNewBrnach() {
 		branchName = form.NewBranchName
 	}
 	ctx.Data["commit_summary"] = form.CommitSummary
@@ -367,8 +382,12 @@ func DeleteFilePost(ctx *context.Context, form auth.DeleteRepoFileForm) {
 		return
 	}
 
-	ctx.Flash.Success(ctx.Tr("repo.editor.file_delete_success", ctx.Repo.TreePath))
-	ctx.Redirect(ctx.Repo.RepoLink + "/src/" + branchName)
+	if form.IsNewBrnach() && ctx.Repo.PullRequest.Allowed {
+		ctx.Redirect(ctx.Repo.PullRequestURL(oldBranchName, form.NewBranchName))
+	} else {
+		ctx.Flash.Success(ctx.Tr("repo.editor.file_delete_success", ctx.Repo.TreePath))
+		ctx.Redirect(ctx.Repo.RepoLink + "/src/" + branchName)
+	}
 }
 
 func renderUploadSettings(ctx *context.Context) {
@@ -382,13 +401,14 @@ func UploadFile(ctx *context.Context) {
 	ctx.Data["PageIsUpload"] = true
 	renderUploadSettings(ctx)
 
-	// We must at least have one element for user to input.
-	treeNames := []string{""}
-	if len(ctx.Repo.TreePath) > 0 {
-		treeNames = strings.Split(ctx.Repo.TreePath, "/")
+	treeNames, treePaths := getParentTreeFields(ctx.Repo.TreePath)
+	if len(treeNames) == 0 {
+		// We must at least have one element for user to input.
+		treeNames = []string{""}
 	}
 
 	ctx.Data["TreeNames"] = treeNames
+	ctx.Data["TreePaths"] = treePaths
 	ctx.Data["BranchLink"] = ctx.Repo.RepoLink + "/src/" + ctx.Repo.BranchName
 	ctx.Data["commit_summary"] = ""
 	ctx.Data["commit_message"] = ""
@@ -405,20 +425,20 @@ func UploadFilePost(ctx *context.Context, form auth.UploadRepoFileForm) {
 	oldBranchName := ctx.Repo.BranchName
 	branchName := oldBranchName
 
-	if form.CommitChoice == "commit-to-new-branch" {
+	if form.IsNewBrnach() {
 		branchName = form.NewBranchName
 	}
 
 	form.TreePath = strings.Trim(form.TreePath, " /")
-
-	// We must at least have one element for user to input.
-	treeNames := []string{""}
-	if len(form.TreePath) > 0 {
-		treeNames = strings.Split(form.TreePath, "/")
+	treeNames, treePaths := getParentTreeFields(form.TreePath)
+	if len(treeNames) == 0 {
+		// We must at least have one element for user to input.
+		treeNames = []string{""}
 	}
 
 	ctx.Data["TreePath"] = form.TreePath
 	ctx.Data["TreeNames"] = treeNames
+	ctx.Data["TreePaths"] = treePaths
 	ctx.Data["BranchLink"] = ctx.Repo.RepoLink + "/src/" + branchName
 	ctx.Data["commit_summary"] = form.CommitSummary
 	ctx.Data["commit_message"] = form.CommitMessage
@@ -483,7 +503,11 @@ func UploadFilePost(ctx *context.Context, form auth.UploadRepoFileForm) {
 		return
 	}
 
-	ctx.Redirect(ctx.Repo.RepoLink + "/src/" + branchName + "/" + form.TreePath)
+	if form.IsNewBrnach() && ctx.Repo.PullRequest.Allowed {
+		ctx.Redirect(ctx.Repo.PullRequestURL(oldBranchName, form.NewBranchName))
+	} else {
+		ctx.Redirect(ctx.Repo.RepoLink + "/src/" + branchName + "/" + form.TreePath)
+	}
 }
 
 func UploadFileToServer(ctx *context.Context) {

@@ -11,13 +11,13 @@ import (
 	"strings"
 
 	"github.com/Unknwon/com"
+	log "gopkg.in/clog.v1"
 	"gopkg.in/editorconfig/editorconfig-core-go.v1"
 	"gopkg.in/macaron.v1"
 
 	"github.com/gogits/git-module"
 
 	"github.com/gogits/gogs/models"
-	"github.com/gogits/gogs/modules/log"
 	"github.com/gogits/gogs/modules/setting"
 )
 
@@ -73,7 +73,7 @@ func (r *Repository) HasAccess() bool {
 
 // CanEnableEditor returns true if repository is editable and user has proper access level.
 func (r *Repository) CanEnableEditor() bool {
-	return r.Repository.CanEnableEditor() && r.IsViewBranch && r.IsWriter()
+	return r.Repository.CanEnableEditor() && r.IsViewBranch && r.IsWriter() && !r.Repository.IsBranchRequirePullRequest(r.BranchName)
 }
 
 // GetEditorconfig returns the .editorconfig definition if found in the
@@ -96,6 +96,16 @@ func (r *Repository) GetEditorconfig() (*editorconfig.Editorconfig, error) {
 		return nil, err
 	}
 	return editorconfig.ParseBytes(data)
+}
+
+// PullRequestURL returns URL for composing a pull request.
+// This function does not check if the repository can actually compose a pull request.
+func (r *Repository) PullRequestURL(baseBranch, headBranch string) string {
+	repoLink := r.RepoLink
+	if r.PullRequest.BaseRepo != nil {
+		repoLink = r.PullRequest.BaseRepo.Link()
+	}
+	return fmt.Sprintf("%s/compare/%s...%s:%s", repoLink, baseBranch, r.Owner.Name, headBranch)
 }
 
 func RetrieveBaseRepo(ctx *Context, repo *models.Repository) {
@@ -146,25 +156,25 @@ func RepoAssignment(args ...bool) macaron.Handler {
 			err   error
 		)
 
-		userName := ctx.Params(":username")
-		repoName := ctx.Params(":reponame")
+		ownerName := ctx.Params(":username")
+		repoName := strings.TrimSuffix(ctx.Params(":reponame"), ".git")
 		refName := ctx.Params(":branchname")
 		if len(refName) == 0 {
 			refName = ctx.Params(":path")
 		}
 
 		// Check if the user is the same as the repository owner
-		if ctx.IsSigned && ctx.User.LowerName == strings.ToLower(userName) {
+		if ctx.IsSigned && ctx.User.LowerName == strings.ToLower(ownerName) {
 			owner = ctx.User
 		} else {
-			owner, err = models.GetUserByName(userName)
+			owner, err = models.GetUserByName(ownerName)
 			if err != nil {
 				if models.IsErrUserNotExist(err) {
 					if ctx.Query("go-get") == "1" {
 						earlyResponseForGoGetMeta(ctx)
 						return
 					}
-					ctx.Handle(404, "GetUserByName", err)
+					ctx.NotFound()
 				} else {
 					ctx.Handle(500, "GetUserByName", err)
 				}
@@ -182,7 +192,7 @@ func RepoAssignment(args ...bool) macaron.Handler {
 					earlyResponseForGoGetMeta(ctx)
 					return
 				}
-				ctx.Handle(404, "GetRepositoryByName", err)
+				ctx.NotFound()
 			} else {
 				ctx.Handle(500, "GetRepositoryByName", err)
 			}
@@ -196,7 +206,11 @@ func RepoAssignment(args ...bool) macaron.Handler {
 		if ctx.IsSigned && ctx.User.IsAdmin {
 			ctx.Repo.AccessMode = models.ACCESS_MODE_OWNER
 		} else {
-			mode, err := models.AccessLevel(ctx.User, repo)
+			var userID int64
+			if ctx.IsSigned {
+				userID = ctx.User.ID
+			}
+			mode, err := models.AccessLevel(userID, repo)
 			if err != nil {
 				ctx.Handle(500, "AccessLevel", err)
 				return
@@ -210,7 +224,7 @@ func RepoAssignment(args ...bool) macaron.Handler {
 				earlyResponseForGoGetMeta(ctx)
 				return
 			}
-			ctx.Handle(404, "no access right", err)
+			ctx.NotFound()
 			return
 		}
 		ctx.Data["HasAccess"] = true
@@ -230,9 +244,9 @@ func RepoAssignment(args ...bool) macaron.Handler {
 		ctx.Data["RepoName"] = ctx.Repo.Repository.Name
 		ctx.Data["IsBareRepo"] = ctx.Repo.Repository.IsBare
 
-		gitRepo, err := git.OpenRepository(models.RepoPath(userName, repoName))
+		gitRepo, err := git.OpenRepository(models.RepoPath(ownerName, repoName))
 		if err != nil {
-			ctx.Handle(500, "RepoAssignment Invalid repo "+models.RepoPath(userName, repoName), err)
+			ctx.Handle(500, "RepoAssignment Invalid repo "+models.RepoPath(ownerName, repoName), err)
 			return
 		}
 		ctx.Repo.GitRepo = gitRepo
@@ -242,7 +256,7 @@ func RepoAssignment(args ...bool) macaron.Handler {
 
 		tags, err := ctx.Repo.GitRepo.GetTags()
 		if err != nil {
-			ctx.Handle(500, "GetTags", err)
+			ctx.Handle(500, fmt.Sprintf("GetTags '%s'", ctx.Repo.Repository.RepoPath()), err)
 			return
 		}
 		ctx.Data["Tags"] = tags
@@ -267,7 +281,7 @@ func RepoAssignment(args ...bool) macaron.Handler {
 
 		// repo is bare and display enable
 		if ctx.Repo.Repository.IsBare {
-			log.Debug("Bare repository: %s", ctx.Repo.RepoLink)
+			log.Trace("Bare repository: %s", ctx.Repo.RepoLink)
 			// NOTE: to prevent templating error
 			ctx.Data["BranchName"] = ""
 			if displayBare {
@@ -395,7 +409,7 @@ func RepoRef() macaron.Handler {
 
 				ctx.Repo.Commit, err = ctx.Repo.GitRepo.GetCommit(refName)
 				if err != nil {
-					ctx.Handle(404, "GetCommit", nil)
+					ctx.NotFound()
 					return
 				}
 			} else {
@@ -455,7 +469,7 @@ func RepoRef() macaron.Handler {
 func RequireRepoAdmin() macaron.Handler {
 	return func(ctx *Context) {
 		if !ctx.IsSigned || (!ctx.Repo.IsAdmin() && !ctx.User.IsAdmin) {
-			ctx.Handle(404, ctx.Req.RequestURI, nil)
+			ctx.NotFound()
 			return
 		}
 	}
@@ -464,7 +478,7 @@ func RequireRepoAdmin() macaron.Handler {
 func RequireRepoWriter() macaron.Handler {
 	return func(ctx *Context) {
 		if !ctx.IsSigned || (!ctx.Repo.IsWriter() && !ctx.User.IsAdmin) {
-			ctx.Handle(404, ctx.Req.RequestURI, nil)
+			ctx.NotFound()
 			return
 		}
 	}
@@ -474,7 +488,7 @@ func RequireRepoWriter() macaron.Handler {
 func GitHookService() macaron.Handler {
 	return func(ctx *Context) {
 		if !ctx.User.CanEditGitHook() {
-			ctx.Handle(404, "GitHookService", nil)
+			ctx.NotFound()
 			return
 		}
 	}

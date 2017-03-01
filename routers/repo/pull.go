@@ -10,6 +10,7 @@ import (
 	"strings"
 
 	"github.com/Unknwon/com"
+	log "gopkg.in/clog.v1"
 
 	"github.com/gogits/git-module"
 
@@ -17,7 +18,6 @@ import (
 	"github.com/gogits/gogs/modules/auth"
 	"github.com/gogits/gogs/modules/base"
 	"github.com/gogits/gogs/modules/context"
-	"github.com/gogits/gogs/modules/log"
 	"github.com/gogits/gogs/modules/setting"
 )
 
@@ -49,7 +49,7 @@ func getForkRepository(ctx *context.Context) *models.Repository {
 		return nil
 	}
 
-	if !forkRepo.CanBeForked() || !forkRepo.HasAccess(ctx.User) {
+	if !forkRepo.CanBeForked() || !forkRepo.HasAccess(ctx.User.ID) {
 		ctx.Handle(404, "getForkRepository", nil)
 		return nil
 	}
@@ -116,6 +116,12 @@ func ForkPost(ctx *context.Context, form auth.CreateRepoForm) {
 			ctx.Error(403)
 			return
 		}
+	}
+
+	// Cannot fork to same owner
+	if ctxUser.ID == forkRepo.OwnerID {
+		ctx.RenderWithErr(ctx.Tr("repo.settings.cannot_fork_to_same_owner"), FORK, &form)
+		return
 	}
 
 	repo, err := models.ForkRepository(ctxUser, forkRepo, form.RepoName, form.Description)
@@ -357,12 +363,10 @@ func ViewPullFiles(ctx *context.Context) {
 		return
 	}
 
-	ec, err := ctx.Repo.GetEditorconfig()
-	if err != nil && !git.IsErrNotExist(err) {
-		ctx.Handle(500, "ErrGettingEditorconfig", err)
+	setEditorconfigIfExists(ctx)
+	if ctx.Written() {
 		return
 	}
-	ctx.Data["Editorconfig"] = ec
 
 	headTarget := path.Join(pull.HeadUserName, pull.HeadRepo.Name)
 	ctx.Data["IsSplitStyle"] = ctx.Query("style") == "split"
@@ -455,6 +459,7 @@ func ParseCompareInfo(ctx *context.Context) (*models.User, *models.Repository, *
 			return nil, nil, nil, nil, "", ""
 		}
 		headBranch = headInfos[1]
+		isSameRepo = headUser.ID == baseRepo.OwnerID
 
 	} else {
 		ctx.Handle(404, "CompareAndPullRequest", nil)
@@ -470,24 +475,30 @@ func ParseCompareInfo(ctx *context.Context) (*models.User, *models.Repository, *
 		return nil, nil, nil, nil, "", ""
 	}
 
-	// Check if current user has fork of repository or in the same repository.
-	headRepo, has := models.HasForkedRepo(headUser.ID, baseRepo.ID)
-	if !has && !isSameRepo {
-		log.Trace("ParseCompareInfo[%d]: does not have fork or in same repository", baseRepo.ID)
-		ctx.Handle(404, "ParseCompareInfo", nil)
-		return nil, nil, nil, nil, "", ""
-	}
+	var (
+		headRepo    *models.Repository
+		headGitRepo *git.Repository
+	)
 
-	var headGitRepo *git.Repository
-	if isSameRepo {
-		headRepo = ctx.Repo.Repository
-		headGitRepo = ctx.Repo.GitRepo
-	} else {
+	// In case user included redundant head user name for comparison in same repository,
+	// no need to check the fork relation.
+	if !isSameRepo {
+		var has bool
+		headRepo, has = models.HasForkedRepo(headUser.ID, baseRepo.ID)
+		if !has {
+			log.Trace("ParseCompareInfo[%d]: does not have fork or in same repository", baseRepo.ID)
+			ctx.Handle(404, "ParseCompareInfo", nil)
+			return nil, nil, nil, nil, "", ""
+		}
+
 		headGitRepo, err = git.OpenRepository(models.RepoPath(headUser.Name, headRepo.Name))
 		if err != nil {
 			ctx.Handle(500, "OpenRepository", err)
 			return nil, nil, nil, nil, "", ""
 		}
+	} else {
+		headRepo = ctx.Repo.Repository
+		headGitRepo = ctx.Repo.GitRepo
 	}
 
 	if !ctx.User.IsWriterOfRepo(headRepo) && !ctx.User.IsAdmin {
@@ -616,13 +627,12 @@ func CompareAndPullRequest(ctx *context.Context) {
 		}
 	}
 
-	ec, err := ctx.Repo.GetEditorconfig()
-	if err != nil && !git.IsErrNotExist(err) {
-		ctx.Handle(500, "ErrGettingEditorconfig", err)
+	setEditorconfigIfExists(ctx)
+	if ctx.Written() {
 		return
 	}
-	ctx.Data["Editorconfig"] = ec
 
+	ctx.Data["IsSplitStyle"] = ctx.Query("style") == "split"
 	ctx.HTML(200, COMPARE_PULL)
 }
 
@@ -708,6 +718,22 @@ func CompareAndPullRequestPost(ctx *context.Context, form auth.CreateIssueForm) 
 	ctx.Redirect(ctx.Repo.RepoLink + "/pulls/" + com.ToStr(pullIssue.Index))
 }
 
+func parseOwnerAndRepo(ctx *context.Context) (*models.User, *models.Repository) {
+	owner, err := models.GetUserByName(ctx.Params(":username"))
+	if err != nil {
+		ctx.NotFoundOrServerError("GetUserByName", models.IsErrUserNotExist, err)
+		return nil, nil
+	}
+
+	repo, err := models.GetRepositoryByName(owner.ID, ctx.Params(":reponame"))
+	if err != nil {
+		ctx.NotFoundOrServerError("GetRepositoryByName", models.IsErrRepoNotExist, err)
+		return nil, nil
+	}
+
+	return owner, repo
+}
+
 func TriggerTask(ctx *context.Context) {
 	pusherID := ctx.QueryInt64("pusher")
 	branch := ctx.Query("branch")
@@ -737,7 +763,7 @@ func TriggerTask(ctx *context.Context) {
 		return
 	}
 
-	log.Trace("TriggerTask '%s/%s' by %s", repo.Name, branch, pusher.Name)
+	log.Trace("TriggerTask '%s/%s' by '%s'", repo.Name, branch, pusher.Name)
 
 	go models.HookQueue.Add(repo.ID)
 	go models.AddTestPullRequestTask(pusher, repo.ID, branch, true)

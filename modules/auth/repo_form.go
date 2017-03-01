@@ -96,12 +96,32 @@ type RepoSettingForm struct {
 	ExternalWikiURL       string
 	EnableIssues          bool
 	EnableExternalTracker bool
+	ExternalTrackerURL    string
 	TrackerURLFormat      string
 	TrackerIssueStyle     string
 	EnablePulls           bool
 }
 
 func (f *RepoSettingForm) Validate(ctx *macaron.Context, errs binding.Errors) binding.Errors {
+	return validate(errs, ctx.Data, f, ctx.Locale)
+}
+
+// __________                             .__
+// \______   \____________    ____   ____ |  |__
+//  |    |  _/\_  __ \__  \  /    \_/ ___\|  |  \
+//  |    |   \ |  | \// __ \|   |  \  \___|   Y  \
+//  |______  / |__|  (____  /___|  /\___  >___|  /
+//         \/             \/     \/     \/     \/
+
+type ProtectBranchForm struct {
+	Protected          bool
+	RequirePullRequest bool
+	EnableWhitelist    bool
+	WhitelistUsers     string
+	WhitelistTeams     string
+}
+
+func (f *ProtectBranchForm) Validate(ctx *macaron.Context, errs binding.Errors) binding.Errors {
 	return validate(errs, ctx.Data, f, ctx.Locale)
 }
 
@@ -153,6 +173,18 @@ type NewSlackHookForm struct {
 }
 
 func (f *NewSlackHookForm) Validate(ctx *macaron.Context, errs binding.Errors) binding.Errors {
+	return validate(errs, ctx.Data, f, ctx.Locale)
+}
+
+type NewDiscordHookForm struct {
+	PayloadURL string `binding:"Required;Url"`
+	Username   string
+	IconURL    string
+	Color      string
+	WebhookForm
+}
+
+func (f *NewDiscordHookForm) Validate(ctx *macaron.Context, errs binding.Errors) binding.Errors {
 	return validate(errs, ctx.Data, f, ctx.Locale)
 }
 
@@ -299,6 +331,10 @@ func (f *EditRepoFileForm) Validate(ctx *macaron.Context, errs binding.Errors) b
 	return validate(errs, ctx.Data, f, ctx.Locale)
 }
 
+func (f *EditRepoFileForm) IsNewBrnach() bool {
+	return f.CommitChoice == "commit-to-new-branch"
+}
+
 type EditPreviewDiffForm struct {
 	Content string
 }
@@ -328,6 +364,10 @@ func (f *UploadRepoFileForm) Validate(ctx *macaron.Context, errs binding.Errors)
 	return validate(errs, ctx.Data, f, ctx.Locale)
 }
 
+func (f *UploadRepoFileForm) IsNewBrnach() bool {
+	return f.CommitChoice == "commit-to-new-branch"
+}
+
 type RemoveUploadFileForm struct {
 	File string `binding:"Required;MaxSize(50)"`
 }
@@ -352,4 +392,8 @@ type DeleteRepoFileForm struct {
 
 func (f *DeleteRepoFileForm) Validate(ctx *macaron.Context, errs binding.Errors) binding.Errors {
 	return validate(errs, ctx.Data, f, ctx.Locale)
+}
+
+func (f *DeleteRepoFileForm) IsNewBrnach() bool {
+	return f.CommitChoice == "commit-to-new-branch"
 }

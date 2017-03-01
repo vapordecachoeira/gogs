@@ -20,18 +20,19 @@ type InstallForm struct {
 	SSLMode  string
 	DbPath   string
 
-	AppName      string `binding:"Required" locale:"install.app_name"`
-	RepoRootPath string `binding:"Required"`
-	RunUser      string `binding:"Required"`
-	Domain       string `binding:"Required"`
-	SSHPort      int
-	HTTPPort     string `binding:"Required"`
-	AppUrl       string `binding:"Required"`
-	LogRootPath  string `binding:"Required"`
+	AppName             string `binding:"Required" locale:"install.app_name"`
+	RepoRootPath        string `binding:"Required"`
+	RunUser             string `binding:"Required"`
+	Domain              string `binding:"Required"`
+	SSHPort             int
+	UseBuiltinSSHServer bool
+	HTTPPort            string `binding:"Required"`
+	AppUrl              string `binding:"Required"`
+	LogRootPath         string `binding:"Required"`
 
 	SMTPHost        string
 	SMTPFrom        string
-	SMTPEmail       string `binding:"OmitEmpty;Email;MaxSize(254)" locale:"install.mailer_user"`
+	SMTPUser        string `binding:"OmitEmpty;MaxSize(254)" locale:"install.mailer_user"`
 	SMTPPasswd      string
 	RegisterConfirm bool
 	MailNotify      bool

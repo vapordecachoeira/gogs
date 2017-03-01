@@ -7,19 +7,20 @@ package org
 import (
 	"strings"
 
+	log "gopkg.in/clog.v1"
+
 	"github.com/gogits/gogs/models"
 	"github.com/gogits/gogs/modules/auth"
 	"github.com/gogits/gogs/modules/base"
 	"github.com/gogits/gogs/modules/context"
-	"github.com/gogits/gogs/modules/log"
 	"github.com/gogits/gogs/modules/setting"
 	"github.com/gogits/gogs/routers/user"
 )
 
 const (
-	SETTINGS_OPTIONS base.TplName = "org/settings/options"
-	SETTINGS_DELETE  base.TplName = "org/settings/delete"
-	SETTINGS_HOOKS   base.TplName = "org/settings/hooks"
+	SETTINGS_OPTIONS  base.TplName = "org/settings/options"
+	SETTINGS_DELETE   base.TplName = "org/settings/delete"
+	SETTINGS_WEBHOOKS base.TplName = "org/settings/webhooks"
 )
 
 func Settings(ctx *context.Context) {
@@ -139,6 +140,7 @@ func Webhooks(ctx *context.Context) {
 	ctx.Data["PageIsSettingsHooks"] = true
 	ctx.Data["BaseLink"] = ctx.Org.OrgLink
 	ctx.Data["Description"] = ctx.Tr("org.settings.hooks_desc")
+	ctx.Data["Types"] = setting.Webhook.Types
 
 	ws, err := models.GetWebhooksByOrgID(ctx.Org.Organization.ID)
 	if err != nil {
@@ -147,7 +149,7 @@ func Webhooks(ctx *context.Context) {
 	}
 
 	ctx.Data["Webhooks"] = ws
-	ctx.HTML(200, SETTINGS_HOOKS)
+	ctx.HTML(200, SETTINGS_WEBHOOKS)
 }
 
 func DeleteWebhook(ctx *context.Context) {

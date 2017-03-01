@@ -5,11 +5,13 @@
 package admin
 
 import (
+	log "gopkg.in/clog.v1"
+
 	api "github.com/gogits/go-gogs-client"
 
 	"github.com/gogits/gogs/models"
 	"github.com/gogits/gogs/modules/context"
-	"github.com/gogits/gogs/modules/log"
+	"github.com/gogits/gogs/modules/mailer"
 	"github.com/gogits/gogs/modules/setting"
 	"github.com/gogits/gogs/routers/api/v1/user"
 )
@@ -65,7 +67,7 @@ func CreateUser(ctx *context.APIContext, form api.CreateUserOption) {
 
 	// Send email notification.
 	if form.SendNotify && setting.MailService != nil {
-		models.SendRegisterNotifyMail(ctx.Context.Context, u)
+		mailer.SendRegisterNotifyMail(ctx.Context.Context, models.NewMailerUser(u))
 	}
 
 	ctx.JSON(201, u.APIFormat())

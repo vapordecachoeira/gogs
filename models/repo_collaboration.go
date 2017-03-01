@@ -6,6 +6,8 @@ package models
 
 import (
 	"fmt"
+
+	api "github.com/gogits/go-gogs-client"
 )
 
 // Collaboration represent the relation between an individual and a repository.
@@ -29,6 +31,16 @@ func (c *Collaboration) ModeI18nKey() string {
 	}
 }
 
+//IsCollaborator returns true if the user is a collaborator
+func (repo *Repository) IsCollaborator(uid int64) (bool, error) {
+	collaboration := &Collaboration{
+		RepoID: repo.ID,
+		UserID: uid,
+	}
+
+	return x.Get(collaboration)
+}
+
 // AddCollaborator adds new collaboration to a repository with default access mode.
 func (repo *Repository) AddCollaborator(u *User) error {
 	collaboration := &Collaboration{
@@ -50,17 +62,10 @@ func (repo *Repository) AddCollaborator(u *User) error {
 		return err
 	}
 
-	if _, err = sess.InsertOne(collaboration); err != nil {
+	if _, err = sess.Insert(collaboration); err != nil {
 		return err
-	}
-
-	if repo.Owner.IsOrganization() {
-		err = repo.recalculateTeamAccesses(sess, 0)
-	} else {
-		err = repo.recalculateAccesses(sess)
-	}
-	if err != nil {
-		return fmt.Errorf("recalculateAccesses 'team=%v': %v", repo.Owner.IsOrganization(), err)
+	} else if err = repo.recalculateAccesses(sess); err != nil {
+		return fmt.Errorf("recalculateAccesses [repo_id: %v]: %v", repo.ID, err)
 	}
 
 	return sess.Commit()
@@ -75,6 +80,17 @@ func (repo *Repository) getCollaborations(e Engine) ([]*Collaboration, error) {
 type Collaborator struct {
 	*User
 	Collaboration *Collaboration
+}
+
+func (c *Collaborator) APIFormat() *api.Collaborator {
+	return &api.Collaborator{
+		User: c.User.APIFormat(),
+		Permissions: api.Permission{
+			Admin: c.Collaboration.Mode >= ACCESS_MODE_ADMIN,
+			Push:  c.Collaboration.Mode >= ACCESS_MODE_WRITE,
+			Pull:  c.Collaboration.Mode >= ACCESS_MODE_READ,
+		},
+	}
 }
 
 func (repo *Repository) getCollaborators(e Engine) ([]*Collaborator, error) {
@@ -103,7 +119,7 @@ func (repo *Repository) GetCollaborators() ([]*Collaborator, error) {
 }
 
 // ChangeCollaborationAccessMode sets new access mode for the collaboration.
-func (repo *Repository) ChangeCollaborationAccessMode(uid int64, mode AccessMode) error {
+func (repo *Repository) ChangeCollaborationAccessMode(userID int64, mode AccessMode) error {
 	// Discard invalid input
 	if mode <= ACCESS_MODE_NONE || mode > ACCESS_MODE_OWNER {
 		return nil
@@ -111,7 +127,7 @@ func (repo *Repository) ChangeCollaborationAccessMode(uid int64, mode AccessMode
 
 	collaboration := &Collaboration{
 		RepoID: repo.ID,
-		UserID: uid,
+		UserID: userID,
 	}
 	has, err := x.Get(collaboration)
 	if err != nil {
@@ -125,6 +141,19 @@ func (repo *Repository) ChangeCollaborationAccessMode(uid int64, mode AccessMode
 	}
 	collaboration.Mode = mode
 
+	// If it's an organizational repository, merge with team access level for highest permission
+	if repo.Owner.IsOrganization() {
+		teams, err := GetUserTeams(repo.OwnerID, userID)
+		if err != nil {
+			return fmt.Errorf("GetUserTeams: [org_id: %d, user_id: %d]: %v", repo.OwnerID, userID, err)
+		}
+		for i := range teams {
+			if mode < teams[i].Authorize {
+				mode = teams[i].Authorize
+			}
+		}
+	}
+
 	sess := x.NewSession()
 	defer sessionRelease(sess)
 	if err = sess.Begin(); err != nil {
@@ -133,8 +162,24 @@ func (repo *Repository) ChangeCollaborationAccessMode(uid int64, mode AccessMode
 
 	if _, err = sess.Id(collaboration.ID).AllCols().Update(collaboration); err != nil {
 		return fmt.Errorf("update collaboration: %v", err)
-	} else if _, err = sess.Exec("UPDATE access SET mode = ? WHERE user_id = ? AND repo_id = ?", mode, uid, repo.ID); err != nil {
-		return fmt.Errorf("update access table: %v", err)
+	}
+
+	access := Access{
+		UserID: userID,
+		RepoID: repo.ID,
+	}
+	has, err = sess.Get(access)
+	if err != nil {
+		return fmt.Errorf("get access record: %v", err)
+	}
+	if has {
+		_, err = sess.Exec("UPDATE access SET mode = ? WHERE user_id = ? AND repo_id = ?", mode, userID, repo.ID)
+	} else {
+		access.Mode = mode
+		_, err = sess.Insert(access)
+	}
+	if err != nil {
+		return fmt.Errorf("update/insert access table: %v", err)
 	}
 
 	return sess.Commit()

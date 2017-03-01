@@ -5,11 +5,12 @@
 package repo
 
 import (
+	log "gopkg.in/clog.v1"
+
 	"github.com/gogits/git-module"
 
 	"github.com/gogits/gogs/modules/base"
 	"github.com/gogits/gogs/modules/context"
-	"github.com/gogits/gogs/modules/log"
 )
 
 const (
@@ -34,7 +35,7 @@ func Branches(ctx *context.Context) {
 }
 
 func DeleteBranchPost(ctx *context.Context) {
-	branchName := ctx.Params(":name")
+	branchName := ctx.Params("*")
 	commitID := ctx.Query("commit")
 
 	defer func() {
@@ -51,7 +52,7 @@ func DeleteBranchPost(ctx *context.Context) {
 	if len(commitID) > 0 {
 		branchCommitID, err := ctx.Repo.GitRepo.GetBranchCommitID(branchName)
 		if err != nil {
-			log.Error(4, "GetBranchCommitID: %v", err)
+			log.Error(2, "GetBranchCommitID: %v", err)
 			return
 		}
 
@@ -62,9 +63,9 @@ func DeleteBranchPost(ctx *context.Context) {
 	}
 
 	if err := ctx.Repo.GitRepo.DeleteBranch(branchName, git.DeleteBranchOptions{
-		Force: false,
+		Force: true,
 	}); err != nil {
-		log.Error(4, "DeleteBranch: %v", err)
+		log.Error(2, "DeleteBranch '%s': %v", branchName, err)
 		return
 	}
 }

@@ -15,12 +15,12 @@ import (
 
 	"github.com/Unknwon/com"
 	"github.com/go-xorm/xorm"
+	log "gopkg.in/clog.v1"
 
 	"github.com/gogits/git-module"
 	api "github.com/gogits/go-gogs-client"
 
 	"github.com/gogits/gogs/modules/base"
-	"github.com/gogits/gogs/modules/log"
 	"github.com/gogits/gogs/modules/setting"
 )
 
@@ -335,7 +335,12 @@ func UpdateIssuesCommit(doer *User, repo *Repository, commits []*PushCommit) err
 			}
 			refMarked[issue.ID] = true
 
-			message := fmt.Sprintf(`<a href="%s/commit/%s">%s</a>`, repo.Link(), c.Sha1, c.Message)
+			msgLines := strings.Split(c.Message, "\n")
+			shortMsg := msgLines[0]
+			if len(msgLines) > 2 {
+				shortMsg += "..."
+			}
+			message := fmt.Sprintf(`<a href="%s/commit/%s">%s</a>`, repo.Link(), c.Sha1, shortMsg)
 			if err = CreateRefComment(doer, repo, issue, message, c.Sha1); err != nil {
 				return err
 			}
@@ -460,6 +465,7 @@ func CommitRepoAction(opts CommitRepoActionOptions) error {
 		opType = ACTION_PUSH_TAG
 		opts.Commits = &PushCommits{}
 	} else {
+		// TODO: detect branch deletion
 		// if not the first commit, set the compare URL.
 		if opts.OldCommitID == git.EMPTY_SHA {
 			isNewBranch = true
@@ -468,7 +474,7 @@ func CommitRepoAction(opts CommitRepoActionOptions) error {
 		}
 
 		if err = UpdateIssuesCommit(pusher, repo, opts.Commits.Commits); err != nil {
-			log.Error(4, "updateIssuesCommit: %v", err)
+			log.Error(2, "UpdateIssuesCommit: %v", err)
 		}
 	}
 
@@ -504,26 +510,30 @@ func CommitRepoAction(opts CommitRepoActionOptions) error {
 	apiRepo := repo.APIFormat(nil)
 	switch opType {
 	case ACTION_COMMIT_REPO: // Push
+		compareURL := setting.AppUrl + opts.Commits.CompareURL
+		if isNewBranch {
+			compareURL = ""
+			if err = PrepareWebhooks(repo, HOOK_EVENT_CREATE, &api.CreatePayload{
+				Ref:     refName,
+				RefType: "branch",
+				Repo:    apiRepo,
+				Sender:  apiPusher,
+			}); err != nil {
+				return fmt.Errorf("PrepareWebhooks (new branch): %v", err)
+			}
+		}
+
 		if err = PrepareWebhooks(repo, HOOK_EVENT_PUSH, &api.PushPayload{
 			Ref:        opts.RefFullName,
 			Before:     opts.OldCommitID,
 			After:      opts.NewCommitID,
-			CompareURL: setting.AppUrl + opts.Commits.CompareURL,
+			CompareURL: compareURL,
 			Commits:    opts.Commits.ToApiPayloadCommits(repo.HTMLURL()),
 			Repo:       apiRepo,
 			Pusher:     apiPusher,
 			Sender:     apiPusher,
 		}); err != nil {
-			return fmt.Errorf("PrepareWebhooks: %v", err)
-		}
-
-		if isNewBranch {
-			return PrepareWebhooks(repo, HOOK_EVENT_CREATE, &api.CreatePayload{
-				Ref:     refName,
-				RefType: "branch",
-				Repo:    apiRepo,
-				Sender:  apiPusher,
-			})
+			return fmt.Errorf("PrepareWebhooks (new commit): %v", err)
 		}
 
 	case ACTION_PUSH_TAG: // Create

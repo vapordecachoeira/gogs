@@ -97,6 +97,7 @@
 			float: left;
 			margin-left: -5px;
 			margin-right: -7px;
+			width: 16px;
 		}
 		.menu {
 			max-height: 300px;
@@ -150,6 +151,36 @@
 		}
 	}
 
+	&.branches:not(.settings) {
+		.ui.list {
+			padding: 0;
+			>.item {
+				margin: 0;
+				line-height: 31px;
+				&:not(:last-child) {
+					border-bottom: 1px solid #DDD;
+				}
+				.column {
+					padding: 5px 15px;
+					.octicon {
+						vertical-align: text-bottom;
+					}
+					code {
+						padding: 4px 0;
+						font-size: 12px;
+					}
+					.ui.text:not(i) {
+						font-size: 12px;
+					}
+					.ui.button {
+						font-size: 12px;
+						padding: 8px 10px;
+					}
+				}
+			}
+		}
+	}
+
 	&.file.list {
 		#repo-desc {
 			font-size: 1.2em;
@@ -165,6 +196,20 @@
 			.ui.button {
 				padding: 8px 10px;
 				font-weight: normal;
+			}
+		}
+		#git-stats {
+			padding: 10px;
+			line-height: 0;
+			.list {
+				width: 100%;
+				.item {
+					margin-left: 0;
+					width: 33.33%;
+					.text b {
+						font-size: 15px;
+					}
+				}
 			}
 		}
 
@@ -358,7 +403,8 @@
 
 			.plain-text {
 				font-size: 14px;
-				padding: 10px 15px;
+				padding: 15px 15px 10px 15px;
+				font-family: Consolas;
 			}
 			.code-view {
 				* {
@@ -784,7 +830,7 @@
 	.label.list {
 		list-style: none;
 		padding-top: 15px;
-		.item {
+		>.item {
 			padding-top: 10px;
 			padding-bottom: 10px;
 			border-bottom: 1px dashed #AAA;
@@ -1132,11 +1178,11 @@
 
 					.tag:not(.icon) {
 						display: block;
-						margin-top: 15px;
+						margin-top: 6px;
 					}
 					.commit {
 						display: block;
-						margin-top: 10px;
+						margin-top: 6px;
 					}
 				}
 				.detail {
@@ -1267,8 +1313,9 @@
 			.ui.sub.header {
 				text-transform: none;
 			}
-			>.markdown {
-				padding: 15px 30px;
+			.markdown {
+				padding-left: 25px;
+				margin-left: -25px;
 
 				h1, h2, h3, h4, h5, h6 {
 					&:first-of-type {
@@ -1307,7 +1354,7 @@
 			}
 		}
 
-		&.branches {
+		&.settings.branches {
 			.protected-branches {
 				.selection.dropdown {
 					width: 300px;
@@ -1366,6 +1413,21 @@
 	}
 }
 // End of .repository
+
+// Should apply organization webhooks page
+.webhook .hook.history.list {
+	.right.menu {
+		.redelivery.button {
+			font-size: 12px;
+			margin-top: 6px;
+			height: 30px;
+			.octicon {
+				font: normal normal normal 13px/1 Octicons;
+				width: 12px;
+			}
+		}
+	}
+}
 
 &.user-cards {
 	.list {
@@ -1476,10 +1538,6 @@
 .settings {
 	.content {
 		margin-top: 2px;
-		>.header,
-		.segment {
-			box-shadow: 0 1px 2px 0 rgba(34,36,38,.15);
-		}
 	}
 	.key.list {
 		.item:not(:first-child) {

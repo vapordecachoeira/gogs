@@ -12,25 +12,21 @@ import (
 	"github.com/Unknwon/paginater"
 
 	"github.com/gogits/gogs/models"
-	"github.com/gogits/gogs/modules/base"
-	"github.com/gogits/gogs/modules/context"
-	"github.com/gogits/gogs/modules/setting"
+	"github.com/gogits/gogs/models/errors"
+	"github.com/gogits/gogs/pkg/context"
+	"github.com/gogits/gogs/pkg/setting"
 	"github.com/gogits/gogs/routers/repo"
 )
 
 const (
-	FOLLOWERS base.TplName = "user/meta/followers"
-	STARS     base.TplName = "user/meta/stars"
+	FOLLOWERS = "user/meta/followers"
+	STARS     = "user/meta/stars"
 )
 
 func GetUserByName(ctx *context.Context, name string) *models.User {
 	user, err := models.GetUserByName(name)
 	if err != nil {
-		if models.IsErrUserNotExist(err) {
-			ctx.Handle(404, "GetUserByName", nil)
-		} else {
-			ctx.Handle(500, "GetUserByName", err)
-		}
+		ctx.NotFoundOrServerError("GetUserByName", errors.IsUserNotExist, err)
 		return nil
 	}
 	return user
@@ -77,7 +73,7 @@ func Profile(ctx *context.Context) {
 	ctx.Data["PageIsUserProfile"] = true
 	ctx.Data["Owner"] = ctxUser
 
-	orgs, err := models.GetOrgsByUserID(ctxUser.ID, ctx.IsSigned && (ctx.User.IsAdmin || ctx.User.ID == ctxUser.ID))
+	orgs, err := models.GetOrgsByUserID(ctxUser.ID, ctx.IsLogged && (ctx.User.IsAdmin || ctx.User.ID == ctxUser.ID))
 	if err != nil {
 		ctx.Handle(500, "GetOrgsByUserIDDesc", err)
 		return
@@ -89,7 +85,7 @@ func Profile(ctx *context.Context) {
 	ctx.Data["TabName"] = tab
 	switch tab {
 	case "activity":
-		retrieveFeeds(ctx, ctxUser, -1, 0, true)
+		retrieveFeeds(ctx, ctxUser, -1, true)
 		if ctx.Written() {
 			return
 		}
@@ -99,7 +95,7 @@ func Profile(ctx *context.Context) {
 			page = 1
 		}
 
-		showPrivate := ctx.IsSigned && (ctxUser.ID == ctx.User.ID || ctx.User.IsAdmin)
+		showPrivate := ctx.IsLogged && (ctxUser.ID == ctx.User.ID || ctx.User.IsAdmin)
 		ctx.Data["Repos"], err = models.GetUserRepositories(&models.UserRepoOptions{
 			UserID:   ctxUser.ID,
 			Private:  showPrivate,

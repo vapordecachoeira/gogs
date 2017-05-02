@@ -18,18 +18,19 @@ import (
 	"github.com/gogits/git-module"
 
 	"github.com/gogits/gogs/models"
-	"github.com/gogits/gogs/modules/base"
-	"github.com/gogits/gogs/modules/context"
-	"github.com/gogits/gogs/modules/markdown"
-	"github.com/gogits/gogs/modules/setting"
-	"github.com/gogits/gogs/modules/template"
-	"github.com/gogits/gogs/modules/template/highlight"
+	"github.com/gogits/gogs/pkg/context"
+	"github.com/gogits/gogs/pkg/markup"
+	"github.com/gogits/gogs/pkg/setting"
+	"github.com/gogits/gogs/pkg/template"
+	"github.com/gogits/gogs/pkg/template/highlight"
+	"github.com/gogits/gogs/pkg/tool"
 )
 
 const (
-	HOME     base.TplName = "repo/home"
-	WATCHERS base.TplName = "repo/watchers"
-	FORKS    base.TplName = "repo/forks"
+	BARE     = "repo/bare"
+	HOME     = "repo/home"
+	WATCHERS = "repo/watchers"
+	FORKS    = "repo/forks"
 )
 
 func renderDirectory(ctx *context.Context, treeLink string) {
@@ -54,7 +55,7 @@ func renderDirectory(ctx *context.Context, treeLink string) {
 
 	var readmeFile *git.Blob
 	for _, entry := range entries {
-		if entry.IsDir() || !markdown.IsReadmeFile(entry.Name()) {
+		if entry.IsDir() || !markup.IsReadmeFile(entry.Name()) {
 			continue
 		}
 
@@ -78,16 +79,16 @@ func renderDirectory(ctx *context.Context, treeLink string) {
 		n, _ := dataRc.Read(buf)
 		buf = buf[:n]
 
-		isTextFile := base.IsTextFile(buf)
+		isTextFile := tool.IsTextFile(buf)
 		ctx.Data["IsTextFile"] = isTextFile
 		ctx.Data["FileName"] = readmeFile.Name()
 		if isTextFile {
 			d, _ := ioutil.ReadAll(dataRc)
 			buf = append(buf, d...)
 			switch {
-			case markdown.IsMarkdownFile(readmeFile.Name()):
+			case markup.IsMarkdownFile(readmeFile.Name()):
 				ctx.Data["IsMarkdown"] = true
-				buf = markdown.Render(buf, treeLink, ctx.Repo.Repository.ComposeMetas())
+				buf = markup.Markdown(buf, treeLink, ctx.Repo.Repository.ComposeMetas())
 			default:
 				buf = bytes.Replace(buf, []byte("\n"), []byte(`<br>`), -1)
 			}
@@ -133,7 +134,7 @@ func renderFile(ctx *context.Context, entry *git.TreeEntry, treeLink, rawLink st
 	n, _ := dataRc.Read(buf)
 	buf = buf[:n]
 
-	isTextFile := base.IsTextFile(buf)
+	isTextFile := tool.IsTextFile(buf)
 	ctx.Data["IsTextFile"] = isTextFile
 
 	// Assume file is not editable first.
@@ -152,14 +153,14 @@ func renderFile(ctx *context.Context, entry *git.TreeEntry, treeLink, rawLink st
 		d, _ := ioutil.ReadAll(dataRc)
 		buf = append(buf, d...)
 
-		isMarkdown := markdown.IsMarkdownFile(blob.Name())
+		isMarkdown := markup.IsMarkdownFile(blob.Name())
 		ctx.Data["IsMarkdown"] = isMarkdown
-		ctx.Data["ReadmeExist"] = isMarkdown && markdown.IsReadmeFile(blob.Name())
+		ctx.Data["ReadmeExist"] = isMarkdown && markup.IsReadmeFile(blob.Name())
 
 		ctx.Data["IsIPythonNotebook"] = strings.HasSuffix(blob.Name(), ".ipynb")
 
 		if isMarkdown {
-			ctx.Data["FileContent"] = string(markdown.Render(buf, path.Dir(treeLink), ctx.Repo.Repository.ComposeMetas()))
+			ctx.Data["FileContent"] = string(markup.Markdown(buf, path.Dir(treeLink), ctx.Repo.Repository.ComposeMetas()))
 		} else {
 			// Building code view blocks with line number on server side.
 			var fileContent string
@@ -195,11 +196,11 @@ func renderFile(ctx *context.Context, entry *git.TreeEntry, treeLink, rawLink st
 			ctx.Data["EditFileTooltip"] = ctx.Tr("repo.editor.fork_before_edit")
 		}
 
-	case base.IsPDFFile(buf):
+	case tool.IsPDFFile(buf):
 		ctx.Data["IsPDFFile"] = true
-	case base.IsVideoFile(buf):
+	case tool.IsVideoFile(buf):
 		ctx.Data["IsVideoFile"] = true
-	case base.IsImageFile(buf):
+	case tool.IsImageFile(buf):
 		ctx.Data["IsImageFile"] = true
 	}
 
@@ -223,6 +224,13 @@ func setEditorconfigIfExists(ctx *context.Context) {
 }
 
 func Home(ctx *context.Context) {
+	ctx.Data["PageIsViewFiles"] = true
+
+	if ctx.Repo.Repository.IsBare {
+		ctx.HTML(200, BARE)
+		return
+	}
+
 	title := ctx.Repo.Repository.Owner.Name + "/" + ctx.Repo.Repository.Name
 	if len(ctx.Repo.Repository.Description) > 0 {
 		title += ": " + ctx.Repo.Repository.Description
@@ -231,16 +239,28 @@ func Home(ctx *context.Context) {
 	if ctx.Repo.BranchName != ctx.Repo.Repository.DefaultBranch {
 		ctx.Data["Title"] = title + " @ " + ctx.Repo.BranchName
 	}
-	ctx.Data["PageIsViewCode"] = true
 	ctx.Data["RequireHighlightJS"] = true
 
 	branchLink := ctx.Repo.RepoLink + "/src/" + ctx.Repo.BranchName
 	treeLink := branchLink
 	rawLink := ctx.Repo.RepoLink + "/raw/" + ctx.Repo.BranchName
 
+	isRootDir := false
 	if len(ctx.Repo.TreePath) > 0 {
 		treeLink += "/" + ctx.Repo.TreePath
+	} else {
+		isRootDir = true
+
+		// Only show Git stats panel when view root directory
+		var err error
+		ctx.Repo.CommitsCount, err = ctx.Repo.Commit.CommitsCount()
+		if err != nil {
+			ctx.Handle(500, "CommitsCount", err)
+			return
+		}
+		ctx.Data["CommitsCount"] = ctx.Repo.CommitsCount
 	}
+	ctx.Data["PageIsRepoHome"] = isRootDir
 
 	// Get current entry user currently looking at.
 	entry, err := ctx.Repo.Commit.GetTreeEntryByPath(ctx.Repo.TreePath)
@@ -284,7 +304,7 @@ func Home(ctx *context.Context) {
 	ctx.HTML(200, HOME)
 }
 
-func RenderUserCards(ctx *context.Context, total int, getter func(page int) ([]*models.User, error), tpl base.TplName) {
+func RenderUserCards(ctx *context.Context, total int, getter func(page int) ([]*models.User, error), tpl string) {
 	page := ctx.QueryInt("page")
 	if page <= 0 {
 		page = 1

@@ -12,28 +12,30 @@ import (
 	log "gopkg.in/clog.v1"
 
 	"github.com/gogits/gogs/models"
-	"github.com/gogits/gogs/modules/auth"
-	"github.com/gogits/gogs/modules/base"
-	"github.com/gogits/gogs/modules/context"
-	"github.com/gogits/gogs/modules/mailer"
-	"github.com/gogits/gogs/modules/setting"
+	"github.com/gogits/gogs/models/errors"
+	"github.com/gogits/gogs/pkg/context"
+	"github.com/gogits/gogs/pkg/form"
+	"github.com/gogits/gogs/pkg/mailer"
+	"github.com/gogits/gogs/pkg/setting"
 )
 
 const (
-	SIGNIN          base.TplName = "user/auth/signin"
-	SIGNUP          base.TplName = "user/auth/signup"
-	ACTIVATE        base.TplName = "user/auth/activate"
-	FORGOT_PASSWORD base.TplName = "user/auth/forgot_passwd"
-	RESET_PASSWORD  base.TplName = "user/auth/reset_passwd"
+	LOGIN                    = "user/auth/login"
+	TWO_FACTOR               = "user/auth/two_factor"
+	TWO_FACTOR_RECOVERY_CODE = "user/auth/two_factor_recovery_code"
+	SIGNUP                   = "user/auth/signup"
+	ACTIVATE                 = "user/auth/activate"
+	FORGOT_PASSWORD          = "user/auth/forgot_passwd"
+	RESET_PASSWORD           = "user/auth/reset_passwd"
 )
 
-// AutoSignIn reads cookie and try to auto-login.
-func AutoSignIn(ctx *context.Context) (bool, error) {
+// AutoLogin reads cookie and try to auto-login.
+func AutoLogin(c *context.Context) (bool, error) {
 	if !models.HasEngine {
 		return false, nil
 	}
 
-	uname := ctx.GetCookie(setting.CookieUserName)
+	uname := c.GetCookie(setting.CookieUserName)
 	if len(uname) == 0 {
 		return false, nil
 	}
@@ -42,27 +44,31 @@ func AutoSignIn(ctx *context.Context) (bool, error) {
 	defer func() {
 		if !isSucceed {
 			log.Trace("auto-login cookie cleared: %s", uname)
-			ctx.SetCookie(setting.CookieUserName, "", -1, setting.AppSubUrl)
-			ctx.SetCookie(setting.CookieRememberName, "", -1, setting.AppSubUrl)
+			c.SetCookie(setting.CookieUserName, "", -1, setting.AppSubURL)
+			c.SetCookie(setting.CookieRememberName, "", -1, setting.AppSubURL)
+			c.SetCookie(setting.LoginStatusCookieName, "", -1, setting.AppSubURL)
 		}
 	}()
 
 	u, err := models.GetUserByName(uname)
 	if err != nil {
-		if !models.IsErrUserNotExist(err) {
+		if !errors.IsUserNotExist(err) {
 			return false, fmt.Errorf("GetUserByName: %v", err)
 		}
 		return false, nil
 	}
 
-	if val, ok := ctx.GetSuperSecureCookie(u.Rands+u.Passwd, setting.CookieRememberName); !ok || val != u.Name {
+	if val, ok := c.GetSuperSecureCookie(u.Rands+u.Passwd, setting.CookieRememberName); !ok || val != u.Name {
 		return false, nil
 	}
 
 	isSucceed = true
-	ctx.Session.Set("uid", u.ID)
-	ctx.Session.Set("uname", u.Name)
-	ctx.SetCookie(setting.CSRFCookieName, "", -1, setting.AppSubUrl)
+	c.Session.Set("uid", u.ID)
+	c.Session.Set("uname", u.Name)
+	c.SetCookie(setting.CSRFCookieName, "", -1, setting.AppSubURL)
+	if setting.EnableLoginStatusCookie {
+		c.SetCookie(setting.LoginStatusCookieName, "true", 0, setting.AppSubURL)
+	}
 	return true, nil
 }
 
@@ -73,86 +79,174 @@ func isValidRedirect(url string) bool {
 	return len(url) >= 2 && url[0] == '/' && url[1] != '/'
 }
 
-func SignIn(ctx *context.Context) {
-	ctx.Data["Title"] = ctx.Tr("sign_in")
+func Login(c *context.Context) {
+	c.Data["Title"] = c.Tr("sign_in")
 
 	// Check auto-login.
-	isSucceed, err := AutoSignIn(ctx)
+	isSucceed, err := AutoLogin(c)
 	if err != nil {
-		ctx.Handle(500, "AutoSignIn", err)
+		c.Handle(500, "AutoLogin", err)
 		return
 	}
 
-	redirectTo := ctx.Query("redirect_to")
+	redirectTo := c.Query("redirect_to")
 	if len(redirectTo) > 0 {
-		ctx.SetCookie("redirect_to", redirectTo, 0, setting.AppSubUrl)
+		c.SetCookie("redirect_to", redirectTo, 0, setting.AppSubURL)
 	} else {
-		redirectTo, _ = url.QueryUnescape(ctx.GetCookie("redirect_to"))
+		redirectTo, _ = url.QueryUnescape(c.GetCookie("redirect_to"))
 	}
-	ctx.SetCookie("redirect_to", "", -1, setting.AppSubUrl)
+	c.SetCookie("redirect_to", "", -1, setting.AppSubURL)
 
 	if isSucceed {
 		if isValidRedirect(redirectTo) {
-			ctx.Redirect(redirectTo)
+			c.Redirect(redirectTo)
 		} else {
-			ctx.Redirect(setting.AppSubUrl + "/")
+			c.Redirect(setting.AppSubURL + "/")
 		}
 		return
 	}
 
-	ctx.HTML(200, SIGNIN)
+	c.HTML(200, LOGIN)
 }
 
-func SignInPost(ctx *context.Context, form auth.SignInForm) {
-	ctx.Data["Title"] = ctx.Tr("sign_in")
+func afterLogin(c *context.Context, u *models.User, remember bool) {
+	if remember {
+		days := 86400 * setting.LoginRememberDays
+		c.SetCookie(setting.CookieUserName, u.Name, days, setting.AppSubURL, "", setting.CookieSecure, true)
+		c.SetSuperSecureCookie(u.Rands+u.Passwd, setting.CookieRememberName, u.Name, days, setting.AppSubURL, "", setting.CookieSecure, true)
+	}
 
-	if ctx.HasError() {
-		ctx.HTML(200, SIGNIN)
+	c.Session.Set("uid", u.ID)
+	c.Session.Set("uname", u.Name)
+	c.Session.Delete("twoFactorRemember")
+	c.Session.Delete("twoFactorUserID")
+
+	// Clear whatever CSRF has right now, force to generate a new one
+	c.SetCookie(setting.CSRFCookieName, "", -1, setting.AppSubURL)
+	if setting.EnableLoginStatusCookie {
+		c.SetCookie(setting.LoginStatusCookieName, "true", 0, setting.AppSubURL)
+	}
+
+	redirectTo, _ := url.QueryUnescape(c.GetCookie("redirect_to"))
+	c.SetCookie("redirect_to", "", -1, setting.AppSubURL)
+	if isValidRedirect(redirectTo) {
+		c.Redirect(redirectTo)
 		return
 	}
 
-	u, err := models.UserSignIn(form.UserName, form.Password)
+	c.Redirect(setting.AppSubURL + "/")
+}
+
+func LoginPost(c *context.Context, f form.SignIn) {
+	c.Data["Title"] = c.Tr("sign_in")
+
+	if c.HasError() {
+		c.Success(LOGIN)
+		return
+	}
+
+	u, err := models.UserSignIn(f.UserName, f.Password)
 	if err != nil {
-		if models.IsErrUserNotExist(err) {
-			ctx.RenderWithErr(ctx.Tr("form.username_password_incorrect"), SIGNIN, &form)
+		if errors.IsUserNotExist(err) {
+			c.RenderWithErr(c.Tr("form.username_password_incorrect"), LOGIN, &f)
 		} else {
-			ctx.Handle(500, "UserSignIn", err)
+			c.ServerError("UserSignIn", err)
 		}
 		return
 	}
 
-	if form.Remember {
-		days := 86400 * setting.LogInRememberDays
-		ctx.SetCookie(setting.CookieUserName, u.Name, days, setting.AppSubUrl, "", setting.CookieSecure, true)
-		ctx.SetSuperSecureCookie(u.Rands+u.Passwd, setting.CookieRememberName, u.Name, days, setting.AppSubUrl, "", setting.CookieSecure, true)
-	}
-
-	ctx.Session.Set("uid", u.ID)
-	ctx.Session.Set("uname", u.Name)
-
-	// Clear whatever CSRF has right now, force to generate a new one
-	ctx.SetCookie(setting.CSRFCookieName, "", -1, setting.AppSubUrl)
-
-	redirectTo, _ := url.QueryUnescape(ctx.GetCookie("redirect_to"))
-	ctx.SetCookie("redirect_to", "", -1, setting.AppSubUrl)
-	if isValidRedirect(redirectTo) {
-		ctx.Redirect(redirectTo)
+	if !u.IsEnabledTwoFactor() {
+		afterLogin(c, u, f.Remember)
 		return
 	}
 
-	ctx.Redirect(setting.AppSubUrl + "/")
+	c.Session.Set("twoFactorRemember", f.Remember)
+	c.Session.Set("twoFactorUserID", u.ID)
+	c.Redirect(setting.AppSubURL + "/user/login/two_factor")
+}
+
+func LoginTwoFactor(c *context.Context) {
+	_, ok := c.Session.Get("twoFactorUserID").(int64)
+	if !ok {
+		c.NotFound()
+		return
+	}
+
+	c.Success(TWO_FACTOR)
+}
+
+func LoginTwoFactorPost(c *context.Context) {
+	userID, ok := c.Session.Get("twoFactorUserID").(int64)
+	if !ok {
+		c.NotFound()
+		return
+	}
+
+	t, err := models.GetTwoFactorByUserID(userID)
+	if err != nil {
+		c.ServerError("GetTwoFactorByUserID", err)
+		return
+	}
+	valid, err := t.ValidateTOTP(c.Query("passcode"))
+	if err != nil {
+		c.ServerError("ValidateTOTP", err)
+		return
+	} else if !valid {
+		c.Flash.Error(c.Tr("settings.two_factor_invalid_passcode"))
+		c.Redirect(setting.AppSubURL + "/user/login/two_factor")
+		return
+	}
+
+	u, err := models.GetUserByID(userID)
+	if err != nil {
+		c.ServerError("GetUserByID", err)
+		return
+	}
+	afterLogin(c, u, c.Session.Get("twoFactorRemember").(bool))
+}
+
+func LoginTwoFactorRecoveryCode(c *context.Context) {
+	_, ok := c.Session.Get("twoFactorUserID").(int64)
+	if !ok {
+		c.NotFound()
+		return
+	}
+
+	c.Success(TWO_FACTOR_RECOVERY_CODE)
+}
+
+func LoginTwoFactorRecoveryCodePost(c *context.Context) {
+	userID, ok := c.Session.Get("twoFactorUserID").(int64)
+	if !ok {
+		c.NotFound()
+		return
+	}
+
+	if err := models.UseRecoveryCode(userID, c.Query("recovery_code")); err != nil {
+		if errors.IsTwoFactorRecoveryCodeNotFound(err) {
+			c.Flash.Error(c.Tr("auth.login_two_factor_invalid_recovery_code"))
+			c.Redirect(setting.AppSubURL + "/user/login/two_factor_recovery_code")
+		} else {
+			c.ServerError("UseRecoveryCode", err)
+		}
+		return
+	}
+
+	u, err := models.GetUserByID(userID)
+	if err != nil {
+		c.ServerError("GetUserByID", err)
+		return
+	}
+	afterLogin(c, u, c.Session.Get("twoFactorRemember").(bool))
 }
 
 func SignOut(ctx *context.Context) {
 	ctx.Session.Delete("uid")
 	ctx.Session.Delete("uname")
-	ctx.Session.Delete("socialId")
-	ctx.Session.Delete("socialName")
-	ctx.Session.Delete("socialEmail")
-	ctx.SetCookie(setting.CookieUserName, "", -1, setting.AppSubUrl)
-	ctx.SetCookie(setting.CookieRememberName, "", -1, setting.AppSubUrl)
-	ctx.SetCookie(setting.CSRFCookieName, "", -1, setting.AppSubUrl)
-	ctx.Redirect(setting.AppSubUrl + "/")
+	ctx.SetCookie(setting.CookieUserName, "", -1, setting.AppSubURL)
+	ctx.SetCookie(setting.CookieRememberName, "", -1, setting.AppSubURL)
+	ctx.SetCookie(setting.CSRFCookieName, "", -1, setting.AppSubURL)
+	ctx.Redirect(setting.AppSubURL + "/")
 }
 
 func SignUp(ctx *context.Context) {
@@ -169,7 +263,7 @@ func SignUp(ctx *context.Context) {
 	ctx.HTML(200, SIGNUP)
 }
 
-func SignUpPost(ctx *context.Context, cpt *captcha.Captcha, form auth.RegisterForm) {
+func SignUpPost(ctx *context.Context, cpt *captcha.Captcha, f form.Register) {
 	ctx.Data["Title"] = ctx.Tr("sign_up")
 
 	ctx.Data["EnableCaptcha"] = setting.Service.EnableCaptcha
@@ -186,36 +280,36 @@ func SignUpPost(ctx *context.Context, cpt *captcha.Captcha, form auth.RegisterFo
 
 	if setting.Service.EnableCaptcha && !cpt.VerifyReq(ctx.Req) {
 		ctx.Data["Err_Captcha"] = true
-		ctx.RenderWithErr(ctx.Tr("form.captcha_incorrect"), SIGNUP, &form)
+		ctx.RenderWithErr(ctx.Tr("form.captcha_incorrect"), SIGNUP, &f)
 		return
 	}
 
-	if form.Password != form.Retype {
+	if f.Password != f.Retype {
 		ctx.Data["Err_Password"] = true
-		ctx.RenderWithErr(ctx.Tr("form.password_not_match"), SIGNUP, &form)
+		ctx.RenderWithErr(ctx.Tr("form.password_not_match"), SIGNUP, &f)
 		return
 	}
 
 	u := &models.User{
-		Name:     form.UserName,
-		Email:    form.Email,
-		Passwd:   form.Password,
+		Name:     f.UserName,
+		Email:    f.Email,
+		Passwd:   f.Password,
 		IsActive: !setting.Service.RegisterEmailConfirm,
 	}
 	if err := models.CreateUser(u); err != nil {
 		switch {
 		case models.IsErrUserAlreadyExist(err):
 			ctx.Data["Err_UserName"] = true
-			ctx.RenderWithErr(ctx.Tr("form.username_been_taken"), SIGNUP, &form)
+			ctx.RenderWithErr(ctx.Tr("form.username_been_taken"), SIGNUP, &f)
 		case models.IsErrEmailAlreadyUsed(err):
 			ctx.Data["Err_Email"] = true
-			ctx.RenderWithErr(ctx.Tr("form.email_been_used"), SIGNUP, &form)
+			ctx.RenderWithErr(ctx.Tr("form.email_been_used"), SIGNUP, &f)
 		case models.IsErrNameReserved(err):
 			ctx.Data["Err_UserName"] = true
-			ctx.RenderWithErr(ctx.Tr("user.form.name_reserved", err.(models.ErrNameReserved).Name), SIGNUP, &form)
+			ctx.RenderWithErr(ctx.Tr("user.form.name_reserved", err.(models.ErrNameReserved).Name), SIGNUP, &f)
 		case models.IsErrNamePatternNotAllowed(err):
 			ctx.Data["Err_UserName"] = true
-			ctx.RenderWithErr(ctx.Tr("user.form.name_pattern_not_allowed", err.(models.ErrNamePatternNotAllowed).Pattern), SIGNUP, &form)
+			ctx.RenderWithErr(ctx.Tr("user.form.name_pattern_not_allowed", err.(models.ErrNamePatternNotAllowed).Pattern), SIGNUP, &f)
 		default:
 			ctx.Handle(500, "CreateUser", err)
 		}
@@ -247,7 +341,7 @@ func SignUpPost(ctx *context.Context, cpt *captcha.Captcha, form auth.RegisterFo
 		return
 	}
 
-	ctx.Redirect(setting.AppSubUrl + "/user/login")
+	ctx.Redirect(setting.AppSubURL + "/user/login")
 }
 
 func Activate(ctx *context.Context) {
@@ -266,8 +360,9 @@ func Activate(ctx *context.Context) {
 				ctx.Data["Hours"] = setting.Service.ActiveCodeLives / 60
 				mailer.SendActivateAccountMail(ctx.Context, models.NewMailerUser(ctx.User))
 
-				if err := ctx.Cache.Put("MailResendLimit_"+ctx.User.LowerName, ctx.User.LowerName, 180); err != nil {
-					log.Error(4, "Set cache(MailResendLimit) fail: %v", err)
+				keyName := "MailResendLimit_" + ctx.User.LowerName
+				if err := ctx.Cache.Put(keyName, ctx.User.LowerName, 180); err != nil {
+					log.Error(2, "Set cache '%s' fail: %v", keyName, err)
 				}
 			}
 		} else {
@@ -286,11 +381,7 @@ func Activate(ctx *context.Context) {
 			return
 		}
 		if err := models.UpdateUser(user); err != nil {
-			if models.IsErrUserNotExist(err) {
-				ctx.Error(404)
-			} else {
-				ctx.Handle(500, "UpdateUser", err)
-			}
+			ctx.Handle(500, "UpdateUser", err)
 			return
 		}
 
@@ -298,7 +389,7 @@ func Activate(ctx *context.Context) {
 
 		ctx.Session.Set("uid", user.ID)
 		ctx.Session.Set("uname", user.Name)
-		ctx.Redirect(setting.AppSubUrl + "/")
+		ctx.Redirect(setting.AppSubURL + "/")
 		return
 	}
 
@@ -320,7 +411,7 @@ func ActivateEmail(ctx *context.Context) {
 		ctx.Flash.Success(ctx.Tr("settings.add_email_success"))
 	}
 
-	ctx.Redirect(setting.AppSubUrl + "/user/settings/email")
+	ctx.Redirect(setting.AppSubURL + "/user/settings/email")
 	return
 }
 
@@ -351,7 +442,7 @@ func ForgotPasswdPost(ctx *context.Context) {
 
 	u, err := models.GetUserByEmail(email)
 	if err != nil {
-		if models.IsErrUserNotExist(err) {
+		if errors.IsUserNotExist(err) {
 			ctx.Data["Hours"] = setting.Service.ActiveCodeLives / 60
 			ctx.Data["IsResetSent"] = true
 			ctx.HTML(200, FORGOT_PASSWORD)
@@ -434,7 +525,7 @@ func ResetPasswdPost(ctx *context.Context) {
 		}
 
 		log.Trace("User password reset: %s", u.Name)
-		ctx.Redirect(setting.AppSubUrl + "/user/login")
+		ctx.Redirect(setting.AppSubURL + "/user/login")
 		return
 	}
 

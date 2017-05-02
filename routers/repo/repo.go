@@ -16,15 +16,16 @@ import (
 	"github.com/gogits/git-module"
 
 	"github.com/gogits/gogs/models"
-	"github.com/gogits/gogs/modules/auth"
-	"github.com/gogits/gogs/modules/base"
-	"github.com/gogits/gogs/modules/context"
-	"github.com/gogits/gogs/modules/setting"
+	"github.com/gogits/gogs/models/errors"
+	"github.com/gogits/gogs/pkg/context"
+	"github.com/gogits/gogs/pkg/form"
+	"github.com/gogits/gogs/pkg/setting"
+	"github.com/gogits/gogs/pkg/tool"
 )
 
 const (
-	CREATE  base.TplName = "repo/create"
-	MIGRATE base.TplName = "repo/migrate"
+	CREATE  = "repo/create"
+	MIGRATE = "repo/migrate"
 )
 
 func MustBeNotBare(ctx *context.Context) {
@@ -47,7 +48,7 @@ func checkContextUser(ctx *context.Context, uid int64) *models.User {
 	}
 
 	org, err := models.GetUserByID(uid)
-	if models.IsErrUserNotExist(err) {
+	if errors.IsUserNotExist(err) {
 		return ctx.User
 	}
 
@@ -84,9 +85,9 @@ func Create(ctx *context.Context) {
 	ctx.HTML(200, CREATE)
 }
 
-func handleCreateError(ctx *context.Context, owner *models.User, err error, name string, tpl base.TplName, form interface{}) {
+func handleCreateError(ctx *context.Context, owner *models.User, err error, name, tpl string, form interface{}) {
 	switch {
-	case models.IsErrReachLimitOfRepo(err):
+	case errors.IsReachLimitOfRepo(err):
 		ctx.RenderWithErr(ctx.Tr("repo.form.reach_limit_of_creation", owner.RepoCreationNum()), tpl, form)
 	case models.IsErrRepoAlreadyExist(err):
 		ctx.Data["Err_RepoName"] = true
@@ -102,14 +103,14 @@ func handleCreateError(ctx *context.Context, owner *models.User, err error, name
 	}
 }
 
-func CreatePost(ctx *context.Context, form auth.CreateRepoForm) {
+func CreatePost(ctx *context.Context, f form.CreateRepo) {
 	ctx.Data["Title"] = ctx.Tr("new_repo")
 
 	ctx.Data["Gitignores"] = models.Gitignores
 	ctx.Data["Licenses"] = models.Licenses
 	ctx.Data["Readmes"] = models.Readmes
 
-	ctxUser := checkContextUser(ctx, form.Uid)
+	ctxUser := checkContextUser(ctx, f.UserID)
 	if ctx.Written() {
 		return
 	}
@@ -120,18 +121,18 @@ func CreatePost(ctx *context.Context, form auth.CreateRepoForm) {
 		return
 	}
 
-	repo, err := models.CreateRepository(ctxUser, models.CreateRepoOptions{
-		Name:        form.RepoName,
-		Description: form.Description,
-		Gitignores:  form.Gitignores,
-		License:     form.License,
-		Readme:      form.Readme,
-		IsPrivate:   form.Private || setting.Repository.ForcePrivate,
-		AutoInit:    form.AutoInit,
+	repo, err := models.CreateRepository(ctx.User, ctxUser, models.CreateRepoOptions{
+		Name:        f.RepoName,
+		Description: f.Description,
+		Gitignores:  f.Gitignores,
+		License:     f.License,
+		Readme:      f.Readme,
+		IsPrivate:   f.Private || setting.Repository.ForcePrivate,
+		AutoInit:    f.AutoInit,
 	})
 	if err == nil {
 		log.Trace("Repository created [%d]: %s/%s", repo.ID, ctxUser.Name, repo.Name)
-		ctx.Redirect(setting.AppSubUrl + "/" + ctxUser.Name + "/" + repo.Name)
+		ctx.Redirect(setting.AppSubURL + "/" + ctxUser.Name + "/" + repo.Name)
 		return
 	}
 
@@ -141,7 +142,7 @@ func CreatePost(ctx *context.Context, form auth.CreateRepoForm) {
 		}
 	}
 
-	handleCreateError(ctx, ctxUser, err, "CreatePost", CREATE, &form)
+	handleCreateError(ctx, ctxUser, err, "CreatePost", CREATE, &f)
 }
 
 func Migrate(ctx *context.Context) {
@@ -159,10 +160,10 @@ func Migrate(ctx *context.Context) {
 	ctx.HTML(200, MIGRATE)
 }
 
-func MigratePost(ctx *context.Context, form auth.MigrateRepoForm) {
+func MigratePost(ctx *context.Context, f form.MigrateRepo) {
 	ctx.Data["Title"] = ctx.Tr("new_migrate")
 
-	ctxUser := checkContextUser(ctx, form.Uid)
+	ctxUser := checkContextUser(ctx, f.Uid)
 	if ctx.Written() {
 		return
 	}
@@ -173,18 +174,18 @@ func MigratePost(ctx *context.Context, form auth.MigrateRepoForm) {
 		return
 	}
 
-	remoteAddr, err := form.ParseRemoteAddr(ctx.User)
+	remoteAddr, err := f.ParseRemoteAddr(ctx.User)
 	if err != nil {
 		if models.IsErrInvalidCloneAddr(err) {
 			ctx.Data["Err_CloneAddr"] = true
 			addrErr := err.(models.ErrInvalidCloneAddr)
 			switch {
 			case addrErr.IsURLError:
-				ctx.RenderWithErr(ctx.Tr("form.url_error"), MIGRATE, &form)
+				ctx.RenderWithErr(ctx.Tr("form.url_error"), MIGRATE, &f)
 			case addrErr.IsPermissionDenied:
-				ctx.RenderWithErr(ctx.Tr("repo.migrate.permission_denied"), MIGRATE, &form)
+				ctx.RenderWithErr(ctx.Tr("repo.migrate.permission_denied"), MIGRATE, &f)
 			case addrErr.IsInvalidPath:
-				ctx.RenderWithErr(ctx.Tr("repo.migrate.invalid_local_path"), MIGRATE, &form)
+				ctx.RenderWithErr(ctx.Tr("repo.migrate.invalid_local_path"), MIGRATE, &f)
 			default:
 				ctx.Handle(500, "Unknown error", err)
 			}
@@ -194,16 +195,16 @@ func MigratePost(ctx *context.Context, form auth.MigrateRepoForm) {
 		return
 	}
 
-	repo, err := models.MigrateRepository(ctxUser, models.MigrateRepoOptions{
-		Name:        form.RepoName,
-		Description: form.Description,
-		IsPrivate:   form.Private || setting.Repository.ForcePrivate,
-		IsMirror:    form.Mirror,
+	repo, err := models.MigrateRepository(ctx.User, ctxUser, models.MigrateRepoOptions{
+		Name:        f.RepoName,
+		Description: f.Description,
+		IsPrivate:   f.Private || setting.Repository.ForcePrivate,
+		IsMirror:    f.Mirror,
 		RemoteAddr:  remoteAddr,
 	})
 	if err == nil {
-		log.Trace("Repository migrated [%d]: %s/%s", repo.ID, ctxUser.Name, form.RepoName)
-		ctx.Redirect(setting.AppSubUrl + "/" + ctxUser.Name + "/" + form.RepoName)
+		log.Trace("Repository migrated [%d]: %s/%s", repo.ID, ctxUser.Name, f.RepoName)
+		ctx.Redirect(setting.AppSubURL + "/" + ctxUser.Name + "/" + f.RepoName)
 		return
 	}
 
@@ -216,15 +217,15 @@ func MigratePost(ctx *context.Context, form auth.MigrateRepoForm) {
 	if strings.Contains(err.Error(), "Authentication failed") ||
 		strings.Contains(err.Error(), "could not read Username") {
 		ctx.Data["Err_Auth"] = true
-		ctx.RenderWithErr(ctx.Tr("form.auth_failed", models.HandleCloneUserCredentials(err.Error(), true)), MIGRATE, &form)
+		ctx.RenderWithErr(ctx.Tr("form.auth_failed", models.HandleMirrorCredentials(err.Error(), true)), MIGRATE, &f)
 		return
 	} else if strings.Contains(err.Error(), "fatal:") {
 		ctx.Data["Err_CloneAddr"] = true
-		ctx.RenderWithErr(ctx.Tr("repo.migrate.failed", models.HandleCloneUserCredentials(err.Error(), true)), MIGRATE, &form)
+		ctx.RenderWithErr(ctx.Tr("repo.migrate.failed", models.HandleMirrorCredentials(err.Error(), true)), MIGRATE, &f)
 		return
 	}
 
-	handleCreateError(ctx, ctxUser, err, "MigratePost", MIGRATE, &form)
+	handleCreateError(ctx, ctxUser, err, "MigratePost", MIGRATE, &f)
 }
 
 func Action(ctx *context.Context) {
@@ -322,7 +323,7 @@ func Download(ctx *context.Context) {
 		return
 	}
 
-	archivePath = path.Join(archivePath, base.ShortSha(commit.ID.String())+ext)
+	archivePath = path.Join(archivePath, tool.ShortSHA1(commit.ID.String())+ext)
 	if !com.IsFile(archivePath) {
 		if err := commit.CreateArchive(archivePath, archiveType); err != nil {
 			ctx.Handle(500, "Download -> CreateArchive "+archivePath, err)

@@ -23,9 +23,9 @@ import (
 	"golang.org/x/crypto/ssh"
 	log "gopkg.in/clog.v1"
 
-	"github.com/gogits/gogs/modules/base"
-	"github.com/gogits/gogs/modules/process"
-	"github.com/gogits/gogs/modules/setting"
+	"github.com/gogits/gogs/pkg/tool"
+	"github.com/gogits/gogs/pkg/process"
+	"github.com/gogits/gogs/pkg/setting"
 )
 
 const (
@@ -484,7 +484,7 @@ func deletePublicKeys(e *xorm.Session, keyIDs ...int64) error {
 		return nil
 	}
 
-	_, err := e.In("id", strings.Join(base.Int64sToStrings(keyIDs), ",")).Delete(new(PublicKey))
+	_, err := e.In("id", strings.Join(tool.Int64sToStrings(keyIDs), ",")).Delete(new(PublicKey))
 	return err
 }
 
@@ -527,6 +527,7 @@ func RewriteAllPublicKeys() error {
 	sshOpLocker.Lock()
 	defer sshOpLocker.Unlock()
 
+	os.MkdirAll(setting.SSH.RootPath, os.ModePerm)
 	fpath := filepath.Join(setting.SSH.RootPath, "authorized_keys")
 	tmpPath := fpath + ".tmp"
 	f, err := os.OpenFile(tmpPath, os.O_RDWR|os.O_CREATE|os.O_TRUNC, 0600)

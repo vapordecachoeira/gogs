@@ -22,14 +22,16 @@ import (
 	"gopkg.in/macaron.v1"
 
 	"github.com/gogits/gogs/models"
-	"github.com/gogits/gogs/modules/base"
-	"github.com/gogits/gogs/modules/context"
-	"github.com/gogits/gogs/modules/setting"
+	"github.com/gogits/gogs/models/errors"
+	"github.com/gogits/gogs/pkg/context"
+	"github.com/gogits/gogs/pkg/setting"
+	"github.com/gogits/gogs/pkg/tool"
 )
 
 const (
 	ENV_AUTH_USER_ID           = "GOGS_AUTH_USER_ID"
 	ENV_AUTH_USER_NAME         = "GOGS_AUTH_USER_NAME"
+	ENV_AUTH_USER_EMAIL        = "GOGS_AUTH_USER_EMAIL"
 	ENV_REPO_OWNER_NAME        = "GOGS_REPO_OWNER_NAME"
 	ENV_REPO_OWNER_SALT_MD5    = "GOGS_REPO_OWNER_SALT_MD5"
 	ENV_REPO_ID                = "GOGS_REPO_ID"
@@ -46,58 +48,73 @@ type HTTPContext struct {
 	AuthUser  *models.User
 }
 
+// askCredentials responses HTTP header and status which informs client to provide credentials.
+func askCredentials(c *context.Context, status int, text string) {
+	c.Resp.Header().Set("WWW-Authenticate", "Basic realm=\".\"")
+	c.HandleText(status, text)
+}
+
 func HTTPContexter() macaron.Handler {
-	return func(ctx *context.Context) {
-		ownerName := ctx.Params(":username")
-		repoName := strings.TrimSuffix(ctx.Params(":reponame"), ".git")
+	return func(c *context.Context) {
+		ownerName := c.Params(":username")
+		repoName := strings.TrimSuffix(c.Params(":reponame"), ".git")
 		repoName = strings.TrimSuffix(repoName, ".wiki")
 
-		isPull := ctx.Query("service") == "git-upload-pack" ||
-			strings.HasSuffix(ctx.Req.URL.Path, "git-upload-pack") ||
-			ctx.Req.Method == "GET"
+		isPull := c.Query("service") == "git-upload-pack" ||
+			strings.HasSuffix(c.Req.URL.Path, "git-upload-pack") ||
+			c.Req.Method == "GET"
 
 		owner, err := models.GetUserByName(ownerName)
 		if err != nil {
-			ctx.NotFoundOrServerError("GetUserByName", models.IsErrUserNotExist, err)
+			c.NotFoundOrServerError("GetUserByName", errors.IsUserNotExist, err)
 			return
 		}
 
 		repo, err := models.GetRepositoryByName(owner.ID, repoName)
 		if err != nil {
-			ctx.NotFoundOrServerError("GetRepositoryByName", models.IsErrRepoNotExist, err)
+			c.NotFoundOrServerError("GetRepositoryByName", errors.IsRepoNotExist, err)
 			return
 		}
 
 		// Authentication is not required for pulling from public repositories.
 		if isPull && !repo.IsPrivate && !setting.Service.RequireSignInView {
-			ctx.Map(&HTTPContext{
-				Context: ctx,
+			c.Map(&HTTPContext{
+				Context: c,
 			})
 			return
 		}
 
+		// In case user requested a wrong URL and not intended to access Git objects.
+		action := c.Params("*")
+		if !strings.Contains(action, "git-") &&
+			!strings.Contains(action, "info/") &&
+			!strings.Contains(action, "HEAD") &&
+			!strings.Contains(action, "objects/") {
+			c.NotFound()
+			return
+		}
+
 		// Handle HTTP Basic Authentication
-		authHead := ctx.Req.Header.Get("Authorization")
+		authHead := c.Req.Header.Get("Authorization")
 		if len(authHead) == 0 {
-			ctx.Resp.Header().Set("WWW-Authenticate", "Basic realm=\".\"")
-			ctx.Error(http.StatusUnauthorized)
+			askCredentials(c, http.StatusUnauthorized, "")
 			return
 		}
 
 		auths := strings.Fields(authHead)
 		if len(auths) != 2 || auths[0] != "Basic" {
-			ctx.Error(http.StatusUnauthorized)
+			askCredentials(c, http.StatusUnauthorized, "")
 			return
 		}
-		authUsername, authPassword, err := base.BasicAuthDecode(auths[1])
+		authUsername, authPassword, err := tool.BasicAuthDecode(auths[1])
 		if err != nil {
-			ctx.Error(http.StatusUnauthorized)
+			askCredentials(c, http.StatusUnauthorized, "")
 			return
 		}
 
 		authUser, err := models.UserSignIn(authUsername, authPassword)
-		if err != nil && !models.IsErrUserNotExist(err) {
-			ctx.Handle(http.StatusInternalServerError, "UserSignIn", err)
+		if err != nil && !errors.IsUserNotExist(err) {
+			c.Handle(http.StatusInternalServerError, "UserSignIn", err)
 			return
 		}
 
@@ -106,9 +123,9 @@ func HTTPContexter() macaron.Handler {
 			token, err := models.GetAccessTokenBySHA(authUsername)
 			if err != nil {
 				if models.IsErrAccessTokenEmpty(err) || models.IsErrAccessTokenNotExist(err) {
-					ctx.Error(http.StatusUnauthorized)
+					askCredentials(c, http.StatusUnauthorized, "")
 				} else {
-					ctx.Handle(http.StatusInternalServerError, "GetAccessTokenBySHA", err)
+					c.Handle(http.StatusInternalServerError, "GetAccessTokenBySHA", err)
 				}
 				return
 			}
@@ -118,10 +135,16 @@ func HTTPContexter() macaron.Handler {
 			if err != nil {
 				// Once we found token, we're supposed to find its related user,
 				// thus any error is unexpected.
-				ctx.Handle(http.StatusInternalServerError, "GetUserByID", err)
+				c.Handle(http.StatusInternalServerError, "GetUserByID", err)
 				return
 			}
+		} else if authUser.IsEnabledTwoFactor() {
+			askCredentials(c, http.StatusUnauthorized, `User with two-factor authentication enabled cannot perform HTTP/HTTPS operations via plain username and password
+Please create and use personal access token on user settings page`)
+			return
 		}
+
+		log.Trace("HTTPGit - Authenticated user: %s", authUser.Name)
 
 		mode := models.ACCESS_MODE_WRITE
 		if isPull {
@@ -129,20 +152,20 @@ func HTTPContexter() macaron.Handler {
 		}
 		has, err := models.HasAccess(authUser.ID, repo, mode)
 		if err != nil {
-			ctx.Handle(http.StatusInternalServerError, "HasAccess", err)
+			c.Handle(http.StatusInternalServerError, "HasAccess", err)
 			return
 		} else if !has {
-			ctx.HandleText(http.StatusForbidden, "User permission denied")
+			askCredentials(c, http.StatusForbidden, "User permission denied")
 			return
 		}
 
 		if !isPull && repo.IsMirror {
-			ctx.HandleText(http.StatusForbidden, "Mirror repository is read-only")
+			c.HandleText(http.StatusForbidden, "Mirror repository is read-only")
 			return
 		}
 
-		ctx.Map(&HTTPContext{
-			Context:   ctx,
+		c.Map(&HTTPContext{
+			Context:   c,
 			OwnerName: ownerName,
 			OwnerSalt: owner.Salt,
 			RepoID:    repo.ID,
@@ -207,8 +230,9 @@ func ComposeHookEnvs(opts ComposeHookEnvsOptions) []string {
 		"SSH_ORIGINAL_COMMAND=1",
 		ENV_AUTH_USER_ID + "=" + com.ToStr(opts.AuthUser.ID),
 		ENV_AUTH_USER_NAME + "=" + opts.AuthUser.Name,
+		ENV_AUTH_USER_EMAIL + "=" + opts.AuthUser.Email,
 		ENV_REPO_OWNER_NAME + "=" + opts.OwnerName,
-		ENV_REPO_OWNER_SALT_MD5 + "=" + base.EncodeMD5(opts.OwnerSalt),
+		ENV_REPO_OWNER_SALT_MD5 + "=" + tool.MD5(opts.OwnerSalt),
 		ENV_REPO_ID + "=" + com.ToStr(opts.RepoID),
 		ENV_REPO_NAME + "=" + opts.RepoName,
 		ENV_REPO_CUSTOM_HOOKS_PATH + "=" + path.Join(opts.RepoPath, "custom_hooks"),
@@ -230,7 +254,7 @@ func serviceRPC(h serviceHandler, service string) {
 		err     error
 	)
 
-	// Handle GZIP.
+	// Handle GZIP
 	if h.r.Header.Get("Content-Encoding") == "gzip" {
 		reqBody, err = gzip.NewReader(reqBody)
 		if err != nil {

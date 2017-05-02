@@ -10,17 +10,17 @@ import (
 	log "gopkg.in/clog.v1"
 
 	"github.com/gogits/gogs/models"
-	"github.com/gogits/gogs/modules/auth"
-	"github.com/gogits/gogs/modules/base"
-	"github.com/gogits/gogs/modules/context"
-	"github.com/gogits/gogs/modules/setting"
+	"github.com/gogits/gogs/models/errors"
+	"github.com/gogits/gogs/pkg/context"
+	"github.com/gogits/gogs/pkg/form"
+	"github.com/gogits/gogs/pkg/setting"
 	"github.com/gogits/gogs/routers/user"
 )
 
 const (
-	SETTINGS_OPTIONS  base.TplName = "org/settings/options"
-	SETTINGS_DELETE   base.TplName = "org/settings/delete"
-	SETTINGS_WEBHOOKS base.TplName = "org/settings/webhooks"
+	SETTINGS_OPTIONS  = "org/settings/options"
+	SETTINGS_DELETE   = "org/settings/delete"
+	SETTINGS_WEBHOOKS = "org/settings/webhooks"
 )
 
 func Settings(ctx *context.Context) {
@@ -29,7 +29,7 @@ func Settings(ctx *context.Context) {
 	ctx.HTML(200, SETTINGS_OPTIONS)
 }
 
-func SettingsPost(ctx *context.Context, form auth.UpdateOrgSettingForm) {
+func SettingsPost(ctx *context.Context, f form.UpdateOrgSetting) {
 	ctx.Data["Title"] = ctx.Tr("org.settings")
 	ctx.Data["PageIsSettingsOptions"] = true
 
@@ -41,40 +41,43 @@ func SettingsPost(ctx *context.Context, form auth.UpdateOrgSettingForm) {
 	org := ctx.Org.Organization
 
 	// Check if organization name has been changed.
-	if org.LowerName != strings.ToLower(form.Name) {
-		isExist, err := models.IsUserExist(org.ID, form.Name)
+	if org.LowerName != strings.ToLower(f.Name) {
+		isExist, err := models.IsUserExist(org.ID, f.Name)
 		if err != nil {
 			ctx.Handle(500, "IsUserExist", err)
 			return
 		} else if isExist {
 			ctx.Data["OrgName"] = true
-			ctx.RenderWithErr(ctx.Tr("form.username_been_taken"), SETTINGS_OPTIONS, &form)
+			ctx.RenderWithErr(ctx.Tr("form.username_been_taken"), SETTINGS_OPTIONS, &f)
 			return
-		} else if err = models.ChangeUserName(org, form.Name); err != nil {
-			if err == models.ErrUserNameIllegal {
-				ctx.Data["OrgName"] = true
-				ctx.RenderWithErr(ctx.Tr("form.illegal_username"), SETTINGS_OPTIONS, &form)
-			} else {
+		} else if err = models.ChangeUserName(org, f.Name); err != nil {
+			ctx.Data["OrgName"] = true
+			switch {
+			case models.IsErrNameReserved(err):
+				ctx.RenderWithErr(ctx.Tr("user.form.name_reserved"), SETTINGS_OPTIONS, &f)
+			case models.IsErrNamePatternNotAllowed(err):
+				ctx.RenderWithErr(ctx.Tr("user.form.name_pattern_not_allowed"), SETTINGS_OPTIONS, &f)
+			default:
 				ctx.Handle(500, "ChangeUserName", err)
 			}
 			return
 		}
 		// reset ctx.org.OrgLink with new name
-		ctx.Org.OrgLink = setting.AppSubUrl + "/org/" + form.Name
-		log.Trace("Organization name changed: %s -> %s", org.Name, form.Name)
+		ctx.Org.OrgLink = setting.AppSubURL + "/org/" + f.Name
+		log.Trace("Organization name changed: %s -> %s", org.Name, f.Name)
 	}
 	// In case it's just a case change.
-	org.Name = form.Name
-	org.LowerName = strings.ToLower(form.Name)
+	org.Name = f.Name
+	org.LowerName = strings.ToLower(f.Name)
 
 	if ctx.User.IsAdmin {
-		org.MaxRepoCreation = form.MaxRepoCreation
+		org.MaxRepoCreation = f.MaxRepoCreation
 	}
 
-	org.FullName = form.FullName
-	org.Description = form.Description
-	org.Website = form.Website
-	org.Location = form.Location
+	org.FullName = f.FullName
+	org.Description = f.Description
+	org.Website = f.Website
+	org.Location = f.Location
 	if err := models.UpdateUser(org); err != nil {
 		ctx.Handle(500, "UpdateUser", err)
 		return
@@ -84,9 +87,9 @@ func SettingsPost(ctx *context.Context, form auth.UpdateOrgSettingForm) {
 	ctx.Redirect(ctx.Org.OrgLink + "/settings")
 }
 
-func SettingsAvatar(ctx *context.Context, form auth.AvatarForm) {
-	form.Source = auth.AVATAR_LOCAL
-	if err := user.UpdateAvatarSetting(ctx, form, ctx.Org.Organization); err != nil {
+func SettingsAvatar(ctx *context.Context, f form.Avatar) {
+	f.Source = form.AVATAR_LOCAL
+	if err := user.UpdateAvatarSetting(ctx, f, ctx.Org.Organization); err != nil {
 		ctx.Flash.Error(err.Error())
 	} else {
 		ctx.Flash.Success(ctx.Tr("org.settings.update_avatar_success"))
@@ -110,7 +113,7 @@ func SettingsDelete(ctx *context.Context) {
 	org := ctx.Org.Organization
 	if ctx.Req.Method == "POST" {
 		if _, err := models.UserSignIn(ctx.User.Name, ctx.Query("password")); err != nil {
-			if models.IsErrUserNotExist(err) {
+			if errors.IsUserNotExist(err) {
 				ctx.RenderWithErr(ctx.Tr("form.enterred_invalid_password"), SETTINGS_DELETE, nil)
 			} else {
 				ctx.Handle(500, "UserSignIn", err)
@@ -127,7 +130,7 @@ func SettingsDelete(ctx *context.Context) {
 			}
 		} else {
 			log.Trace("Organization deleted: %s", org.Name)
-			ctx.Redirect(setting.AppSubUrl + "/")
+			ctx.Redirect(setting.AppSubURL + "/")
 		}
 		return
 	}

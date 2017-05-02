@@ -15,17 +15,18 @@ import (
 	"github.com/gogits/git-module"
 
 	"github.com/gogits/gogs/models"
-	"github.com/gogits/gogs/modules/auth"
-	"github.com/gogits/gogs/modules/base"
-	"github.com/gogits/gogs/modules/context"
-	"github.com/gogits/gogs/modules/setting"
+	"github.com/gogits/gogs/models/errors"
+	"github.com/gogits/gogs/pkg/context"
+	"github.com/gogits/gogs/pkg/form"
+	"github.com/gogits/gogs/pkg/setting"
+	"github.com/gogits/gogs/pkg/tool"
 )
 
 const (
-	FORK         base.TplName = "repo/pulls/fork"
-	COMPARE_PULL base.TplName = "repo/pulls/compare"
-	PULL_COMMITS base.TplName = "repo/pulls/commits"
-	PULL_FILES   base.TplName = "repo/pulls/files"
+	FORK         = "repo/pulls/fork"
+	COMPARE_PULL = "repo/pulls/compare"
+	PULL_COMMITS = "repo/pulls/commits"
+	PULL_FILES   = "repo/pulls/files"
 
 	PULL_REQUEST_TEMPLATE_KEY = "PullRequestTemplate"
 )
@@ -38,31 +39,27 @@ var (
 	}
 )
 
-func getForkRepository(ctx *context.Context) *models.Repository {
-	forkRepo, err := models.GetRepositoryByID(ctx.ParamsInt64(":repoid"))
+func parseBaseRepository(ctx *context.Context) *models.Repository {
+	baseRepo, err := models.GetRepositoryByID(ctx.ParamsInt64(":repoid"))
 	if err != nil {
-		if models.IsErrRepoNotExist(err) {
-			ctx.Handle(404, "GetRepositoryByID", nil)
-		} else {
-			ctx.Handle(500, "GetRepositoryByID", err)
-		}
+		ctx.NotFoundOrServerError("GetRepositoryByID", errors.IsRepoNotExist, err)
 		return nil
 	}
 
-	if !forkRepo.CanBeForked() || !forkRepo.HasAccess(ctx.User.ID) {
-		ctx.Handle(404, "getForkRepository", nil)
+	if !baseRepo.CanBeForked() || !baseRepo.HasAccess(ctx.User.ID) {
+		ctx.NotFound()
 		return nil
 	}
 
-	ctx.Data["repo_name"] = forkRepo.Name
-	ctx.Data["description"] = forkRepo.Description
-	ctx.Data["IsPrivate"] = forkRepo.IsPrivate
+	ctx.Data["repo_name"] = baseRepo.Name
+	ctx.Data["description"] = baseRepo.Description
+	ctx.Data["IsPrivate"] = baseRepo.IsPrivate
 
-	if err = forkRepo.GetOwner(); err != nil {
+	if err = baseRepo.GetOwner(); err != nil {
 		ctx.Handle(500, "GetOwner", err)
 		return nil
 	}
-	ctx.Data["ForkFrom"] = forkRepo.Owner.Name + "/" + forkRepo.Name
+	ctx.Data["ForkFrom"] = baseRepo.Owner.Name + "/" + baseRepo.Name
 
 	if err := ctx.User.GetOrganizations(true); err != nil {
 		ctx.Handle(500, "GetOrganizations", err)
@@ -70,13 +67,13 @@ func getForkRepository(ctx *context.Context) *models.Repository {
 	}
 	ctx.Data["Orgs"] = ctx.User.Orgs
 
-	return forkRepo
+	return baseRepo
 }
 
 func Fork(ctx *context.Context) {
 	ctx.Data["Title"] = ctx.Tr("new_fork")
 
-	getForkRepository(ctx)
+	parseBaseRepository(ctx)
 	if ctx.Written() {
 		return
 	}
@@ -85,15 +82,15 @@ func Fork(ctx *context.Context) {
 	ctx.HTML(200, FORK)
 }
 
-func ForkPost(ctx *context.Context, form auth.CreateRepoForm) {
+func ForkPost(ctx *context.Context, f form.CreateRepo) {
 	ctx.Data["Title"] = ctx.Tr("new_fork")
 
-	forkRepo := getForkRepository(ctx)
+	baseRepo := parseBaseRepository(ctx)
 	if ctx.Written() {
 		return
 	}
 
-	ctxUser := checkContextUser(ctx, form.Uid)
+	ctxUser := checkContextUser(ctx, f.UserID)
 	if ctx.Written() {
 		return
 	}
@@ -104,54 +101,48 @@ func ForkPost(ctx *context.Context, form auth.CreateRepoForm) {
 		return
 	}
 
-	repo, has := models.HasForkedRepo(ctxUser.ID, forkRepo.ID)
+	repo, has := models.HasForkedRepo(ctxUser.ID, baseRepo.ID)
 	if has {
-		ctx.Redirect(setting.AppSubUrl + "/" + ctxUser.Name + "/" + repo.Name)
+		ctx.Redirect(repo.Link())
 		return
 	}
 
 	// Check ownership of organization.
-	if ctxUser.IsOrganization() {
-		if !ctxUser.IsOwnedBy(ctx.User.ID) {
-			ctx.Error(403)
-			return
-		}
-	}
-
-	// Cannot fork to same owner
-	if ctxUser.ID == forkRepo.OwnerID {
-		ctx.RenderWithErr(ctx.Tr("repo.settings.cannot_fork_to_same_owner"), FORK, &form)
+	if ctxUser.IsOrganization() && !ctxUser.IsOwnedBy(ctx.User.ID) {
+		ctx.Error(403)
 		return
 	}
 
-	repo, err := models.ForkRepository(ctxUser, forkRepo, form.RepoName, form.Description)
+	// Cannot fork to same owner
+	if ctxUser.ID == baseRepo.OwnerID {
+		ctx.RenderWithErr(ctx.Tr("repo.settings.cannot_fork_to_same_owner"), FORK, &f)
+		return
+	}
+
+	repo, err := models.ForkRepository(ctx.User, ctxUser, baseRepo, f.RepoName, f.Description)
 	if err != nil {
 		ctx.Data["Err_RepoName"] = true
 		switch {
 		case models.IsErrRepoAlreadyExist(err):
-			ctx.RenderWithErr(ctx.Tr("repo.settings.new_owner_has_same_repo"), FORK, &form)
+			ctx.RenderWithErr(ctx.Tr("repo.settings.new_owner_has_same_repo"), FORK, &f)
 		case models.IsErrNameReserved(err):
-			ctx.RenderWithErr(ctx.Tr("repo.form.name_reserved", err.(models.ErrNameReserved).Name), FORK, &form)
+			ctx.RenderWithErr(ctx.Tr("repo.form.name_reserved", err.(models.ErrNameReserved).Name), FORK, &f)
 		case models.IsErrNamePatternNotAllowed(err):
-			ctx.RenderWithErr(ctx.Tr("repo.form.name_pattern_not_allowed", err.(models.ErrNamePatternNotAllowed).Pattern), FORK, &form)
+			ctx.RenderWithErr(ctx.Tr("repo.form.name_pattern_not_allowed", err.(models.ErrNamePatternNotAllowed).Pattern), FORK, &f)
 		default:
 			ctx.Handle(500, "ForkPost", err)
 		}
 		return
 	}
 
-	log.Trace("Repository forked[%d]: %s/%s", forkRepo.ID, ctxUser.Name, repo.Name)
-	ctx.Redirect(setting.AppSubUrl + "/" + ctxUser.Name + "/" + repo.Name)
+	log.Trace("Repository forked from '%s' -> '%s'", baseRepo.FullName(), repo.FullName())
+	ctx.Redirect(repo.Link())
 }
 
 func checkPullInfo(ctx *context.Context) *models.Issue {
 	issue, err := models.GetIssueByIndex(ctx.Repo.Repository.ID, ctx.ParamsInt64(":index"))
 	if err != nil {
-		if models.IsErrIssueNotExist(err) {
-			ctx.Handle(404, "GetIssueByIndex", err)
-		} else {
-			ctx.Handle(500, "GetIssueByIndex", err)
-		}
+		ctx.NotFoundOrServerError("GetIssueByIndex", errors.IsIssueNotExist, err)
 		return nil
 	}
 	ctx.Data["Title"] = issue.Title
@@ -162,7 +153,7 @@ func checkPullInfo(ctx *context.Context) *models.Issue {
 		return nil
 	}
 
-	if ctx.IsSigned {
+	if ctx.IsLogged {
 		// Update issue-user.
 		if err = issue.ReadBy(ctx.User.ID); err != nil {
 			ctx.Handle(500, "ReadBy", err)
@@ -248,8 +239,11 @@ func ViewPullCommits(ctx *context.Context) {
 		return
 	}
 	pull := issue.PullRequest
-	ctx.Data["Username"] = pull.HeadUserName
-	ctx.Data["Reponame"] = pull.HeadRepo.Name
+
+	if pull.HeadRepo != nil {
+		ctx.Data["Username"] = pull.HeadUserName
+		ctx.Data["Reponame"] = pull.HeadRepo.Name
+	}
 
 	var commits *list.List
 	if pull.HasMerged {
@@ -286,7 +280,7 @@ func ViewPullCommits(ctx *context.Context) {
 
 	commits = models.ValidateCommitsWithEmails(commits)
 	ctx.Data["Commits"] = commits
-	ctx.Data["CommitCount"] = commits.Len()
+	ctx.Data["CommitsCount"] = commits.Len()
 
 	ctx.HTML(200, PULL_COMMITS)
 }
@@ -368,16 +362,21 @@ func ViewPullFiles(ctx *context.Context) {
 		return
 	}
 
-	headTarget := path.Join(pull.HeadUserName, pull.HeadRepo.Name)
 	ctx.Data["IsSplitStyle"] = ctx.Query("style") == "split"
-	ctx.Data["Username"] = pull.HeadUserName
-	ctx.Data["Reponame"] = pull.HeadRepo.Name
 	ctx.Data["IsImageFile"] = commit.IsImageFile
-	ctx.Data["SourcePath"] = setting.AppSubUrl + "/" + path.Join(headTarget, "src", endCommitID)
-	ctx.Data["BeforeSourcePath"] = setting.AppSubUrl + "/" + path.Join(headTarget, "src", startCommitID)
-	ctx.Data["RawPath"] = setting.AppSubUrl + "/" + path.Join(headTarget, "raw", endCommitID)
-	ctx.Data["RequireHighlightJS"] = true
 
+	// It is possible head repo has been deleted for merged pull requests
+	if pull.HeadRepo != nil {
+		ctx.Data["Username"] = pull.HeadUserName
+		ctx.Data["Reponame"] = pull.HeadRepo.Name
+
+		headTarget := path.Join(pull.HeadUserName, pull.HeadRepo.Name)
+		ctx.Data["SourcePath"] = setting.AppSubURL + "/" + path.Join(headTarget, "src", endCommitID)
+		ctx.Data["BeforeSourcePath"] = setting.AppSubURL + "/" + path.Join(headTarget, "src", startCommitID)
+		ctx.Data["RawPath"] = setting.AppSubURL + "/" + path.Join(headTarget, "raw", endCommitID)
+	}
+
+	ctx.Data["RequireHighlightJS"] = true
 	ctx.HTML(200, PULL_FILES)
 }
 
@@ -393,11 +392,7 @@ func MergePullRequest(ctx *context.Context) {
 
 	pr, err := models.GetPullRequestByIssueID(issue.ID)
 	if err != nil {
-		if models.IsErrPullRequestNotExist(err) {
-			ctx.Handle(404, "GetPullRequestByIssueID", nil)
-		} else {
-			ctx.Handle(500, "GetPullRequestByIssueID", err)
-		}
+		ctx.NotFoundOrServerError("GetPullRequestByIssueID", models.IsErrPullRequestNotExist, err)
 		return
 	}
 
@@ -451,11 +446,7 @@ func ParseCompareInfo(ctx *context.Context) (*models.User, *models.Repository, *
 	} else if len(headInfos) == 2 {
 		headUser, err = models.GetUserByName(headInfos[0])
 		if err != nil {
-			if models.IsErrUserNotExist(err) {
-				ctx.Handle(404, "GetUserByName", nil)
-			} else {
-				ctx.Handle(500, "GetUserByName", err)
-			}
+			ctx.NotFoundOrServerError("GetUserByName", errors.IsUserNotExist, err)
 			return nil, nil, nil, nil, "", ""
 		}
 		headBranch = headInfos[1]
@@ -582,9 +573,9 @@ func PrepareCompareDiff(
 	ctx.Data["IsImageFile"] = headCommit.IsImageFile
 
 	headTarget := path.Join(headUser.Name, repo.Name)
-	ctx.Data["SourcePath"] = setting.AppSubUrl + "/" + path.Join(headTarget, "src", headCommitID)
-	ctx.Data["BeforeSourcePath"] = setting.AppSubUrl + "/" + path.Join(headTarget, "src", prInfo.MergeBase)
-	ctx.Data["RawPath"] = setting.AppSubUrl + "/" + path.Join(headTarget, "raw", headCommitID)
+	ctx.Data["SourcePath"] = setting.AppSubURL + "/" + path.Join(headTarget, "src", headCommitID)
+	ctx.Data["BeforeSourcePath"] = setting.AppSubURL + "/" + path.Join(headTarget, "src", prInfo.MergeBase)
+	ctx.Data["RawPath"] = setting.AppSubURL + "/" + path.Join(headTarget, "raw", headCommitID)
 	return false
 }
 
@@ -636,7 +627,7 @@ func CompareAndPullRequest(ctx *context.Context) {
 	ctx.HTML(200, COMPARE_PULL)
 }
 
-func CompareAndPullRequestPost(ctx *context.Context, form auth.CreateIssueForm) {
+func CompareAndPullRequestPost(ctx *context.Context, f form.NewIssue) {
 	ctx.Data["Title"] = ctx.Tr("repo.pulls.compare_changes")
 	ctx.Data["PageIsComparePull"] = true
 	ctx.Data["IsDiffCompare"] = true
@@ -653,17 +644,17 @@ func CompareAndPullRequestPost(ctx *context.Context, form auth.CreateIssueForm) 
 		return
 	}
 
-	labelIDs, milestoneID, assigneeID := ValidateRepoMetas(ctx, form)
+	labelIDs, milestoneID, assigneeID := ValidateRepoMetas(ctx, f)
 	if ctx.Written() {
 		return
 	}
 
 	if setting.AttachmentEnabled {
-		attachments = form.Files
+		attachments = f.Files
 	}
 
 	if ctx.HasError() {
-		auth.AssignForm(form, ctx.Data)
+		form.Assign(f, ctx.Data)
 
 		// This stage is already stop creating new pull request, so it does not matter if it has
 		// something to compare or not.
@@ -685,13 +676,13 @@ func CompareAndPullRequestPost(ctx *context.Context, form auth.CreateIssueForm) 
 	pullIssue := &models.Issue{
 		RepoID:      repo.ID,
 		Index:       repo.NextIssueIndex(),
-		Title:       form.Title,
+		Title:       f.Title,
 		PosterID:    ctx.User.ID,
 		Poster:      ctx.User,
 		MilestoneID: milestoneID,
 		AssigneeID:  assigneeID,
 		IsPull:      true,
-		Content:     form.Content,
+		Content:     f.Content,
 	}
 	pullRequest := &models.PullRequest{
 		HeadRepoID:   headRepo.ID,
@@ -721,13 +712,13 @@ func CompareAndPullRequestPost(ctx *context.Context, form auth.CreateIssueForm) 
 func parseOwnerAndRepo(ctx *context.Context) (*models.User, *models.Repository) {
 	owner, err := models.GetUserByName(ctx.Params(":username"))
 	if err != nil {
-		ctx.NotFoundOrServerError("GetUserByName", models.IsErrUserNotExist, err)
+		ctx.NotFoundOrServerError("GetUserByName", errors.IsUserNotExist, err)
 		return nil, nil
 	}
 
 	repo, err := models.GetRepositoryByName(owner.ID, ctx.Params(":reponame"))
 	if err != nil {
-		ctx.NotFoundOrServerError("GetRepositoryByName", models.IsErrRepoNotExist, err)
+		ctx.NotFoundOrServerError("GetRepositoryByName", errors.IsRepoNotExist, err)
 		return nil, nil
 	}
 
@@ -747,7 +738,7 @@ func TriggerTask(ctx *context.Context) {
 	if ctx.Written() {
 		return
 	}
-	if secret != base.EncodeMD5(owner.Salt) {
+	if secret != tool.MD5(owner.Salt) {
 		ctx.Error(404)
 		log.Trace("TriggerTask [%s/%s]: invalid secret", owner.Name, repo.Name)
 		return
@@ -755,11 +746,7 @@ func TriggerTask(ctx *context.Context) {
 
 	pusher, err := models.GetUserByID(pusherID)
 	if err != nil {
-		if models.IsErrUserNotExist(err) {
-			ctx.Error(404)
-		} else {
-			ctx.Handle(500, "GetUserByID", err)
-		}
+		ctx.NotFoundOrServerError("GetUserByID", errors.IsUserNotExist, err)
 		return
 	}
 

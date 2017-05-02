@@ -21,13 +21,13 @@ import (
 	"github.com/gogits/git-module"
 
 	"github.com/gogits/gogs/models"
-	"github.com/gogits/gogs/modules/httplib"
-	"github.com/gogits/gogs/modules/setting"
+	"github.com/gogits/gogs/pkg/httplib"
+	"github.com/gogits/gogs/pkg/setting"
 	http "github.com/gogits/gogs/routers/repo"
 )
 
 var (
-	CmdHook = cli.Command{
+	Hook = cli.Command{
 		Name:        "hook",
 		Usage:       "Delegate commands to corresponding Git hooks",
 		Description: "All sub-commands should only be called by Git",
@@ -100,14 +100,21 @@ func runHookPreReceive(c *cli.Context) error {
 			continue
 		}
 
-		// Check if whitelist is enabled
+		// Whitelist users can bypass require pull request check
+		bypassRequirePullRequest := false
+
+		// Check if user is in whitelist when enabled
 		userID := com.StrTo(os.Getenv(http.ENV_AUTH_USER_ID)).MustInt64()
-		if protectBranch.EnableWhitelist && !models.IsUserInProtectBranchWhitelist(repoID, userID, branchName) {
-			fail(fmt.Sprintf("Branch '%s' is protected and you are not in the push whitelist", branchName), "")
+		if protectBranch.EnableWhitelist {
+			if !models.IsUserInProtectBranchWhitelist(repoID, userID, branchName) {
+				fail(fmt.Sprintf("Branch '%s' is protected and you are not in the push whitelist", branchName), "")
+			}
+
+			bypassRequirePullRequest = true
 		}
 
 		// Check if branch allows direct push
-		if protectBranch.RequirePullRequest {
+		if !bypassRequirePullRequest && protectBranch.RequirePullRequest {
 			fail(fmt.Sprintf("Branch '%s' is protected and commits must be merged through pull request", branchName), "")
 		}
 
@@ -117,7 +124,8 @@ func runHookPreReceive(c *cli.Context) error {
 		}
 
 		// Check force push
-		output, err := git.NewCommand("rev-list", oldCommitID, "^"+newCommitID).Run()
+		output, err := git.NewCommand("rev-list", oldCommitID, "^"+newCommitID).
+			RunInDir(models.RepoPath(os.Getenv(http.ENV_REPO_OWNER_NAME), os.Getenv(http.ENV_REPO_NAME)))
 		if err != nil {
 			fail("Internal error", "Fail to detect force push: %v", err)
 		} else if len(output) > 0 {
@@ -131,6 +139,7 @@ func runHookPreReceive(c *cli.Context) error {
 	}
 
 	hookCmd := exec.Command(customHooksPath)
+	hookCmd.Dir = models.RepoPath(os.Getenv(http.ENV_REPO_OWNER_NAME), os.Getenv(http.ENV_REPO_NAME))
 	hookCmd.Stdout = os.Stdout
 	hookCmd.Stdin = buf
 	hookCmd.Stderr = os.Stderr
@@ -159,6 +168,7 @@ func runHookUpdate(c *cli.Context) error {
 	}
 
 	hookCmd := exec.Command(customHooksPath, args...)
+	hookCmd.Dir = models.RepoPath(os.Getenv(http.ENV_REPO_OWNER_NAME), os.Getenv(http.ENV_REPO_NAME))
 	hookCmd.Stdout = os.Stdout
 	hookCmd.Stdin = os.Stdin
 	hookCmd.Stderr = os.Stderr
@@ -231,6 +241,7 @@ func runHookPostReceive(c *cli.Context) error {
 	}
 
 	hookCmd := exec.Command(customHooksPath)
+	hookCmd.Dir = models.RepoPath(os.Getenv(http.ENV_REPO_OWNER_NAME), os.Getenv(http.ENV_REPO_NAME))
 	hookCmd.Stdout = os.Stdout
 	hookCmd.Stdin = buf
 	hookCmd.Stderr = os.Stderr

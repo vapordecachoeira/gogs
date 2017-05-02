@@ -11,18 +11,17 @@ import (
 	log "gopkg.in/clog.v1"
 
 	"github.com/gogits/gogs/models"
-	"github.com/gogits/gogs/modules/auth"
-	"github.com/gogits/gogs/modules/base"
-	"github.com/gogits/gogs/modules/context"
-	"github.com/gogits/gogs/modules/mailer"
-	"github.com/gogits/gogs/modules/setting"
+	"github.com/gogits/gogs/pkg/context"
+	"github.com/gogits/gogs/pkg/form"
+	"github.com/gogits/gogs/pkg/mailer"
+	"github.com/gogits/gogs/pkg/setting"
 	"github.com/gogits/gogs/routers"
 )
 
 const (
-	USERS     base.TplName = "admin/user/list"
-	USER_NEW  base.TplName = "admin/user/new"
-	USER_EDIT base.TplName = "admin/user/edit"
+	USERS     = "admin/user/list"
+	USER_NEW  = "admin/user/new"
+	USER_EDIT = "admin/user/edit"
 )
 
 func Users(ctx *context.Context) {
@@ -58,7 +57,7 @@ func NewUser(ctx *context.Context) {
 	ctx.HTML(200, USER_NEW)
 }
 
-func NewUserPost(ctx *context.Context, form auth.AdminCrateUserForm) {
+func NewUserPost(ctx *context.Context, f form.AdminCrateUser) {
 	ctx.Data["Title"] = ctx.Tr("admin.users.new_account")
 	ctx.Data["PageIsAdmin"] = true
 	ctx.Data["PageIsAdminUsers"] = true
@@ -78,19 +77,19 @@ func NewUserPost(ctx *context.Context, form auth.AdminCrateUserForm) {
 	}
 
 	u := &models.User{
-		Name:      form.UserName,
-		Email:     form.Email,
-		Passwd:    form.Password,
+		Name:      f.UserName,
+		Email:     f.Email,
+		Passwd:    f.Password,
 		IsActive:  true,
 		LoginType: models.LOGIN_PLAIN,
 	}
 
-	if len(form.LoginType) > 0 {
-		fields := strings.Split(form.LoginType, "-")
+	if len(f.LoginType) > 0 {
+		fields := strings.Split(f.LoginType, "-")
 		if len(fields) == 2 {
 			u.LoginType = models.LoginType(com.StrTo(fields[0]).MustInt())
 			u.LoginSource = com.StrTo(fields[1]).MustInt64()
-			u.LoginName = form.LoginName
+			u.LoginName = f.LoginName
 		}
 	}
 
@@ -98,16 +97,16 @@ func NewUserPost(ctx *context.Context, form auth.AdminCrateUserForm) {
 		switch {
 		case models.IsErrUserAlreadyExist(err):
 			ctx.Data["Err_UserName"] = true
-			ctx.RenderWithErr(ctx.Tr("form.username_been_taken"), USER_NEW, &form)
+			ctx.RenderWithErr(ctx.Tr("form.username_been_taken"), USER_NEW, &f)
 		case models.IsErrEmailAlreadyUsed(err):
 			ctx.Data["Err_Email"] = true
-			ctx.RenderWithErr(ctx.Tr("form.email_been_used"), USER_NEW, &form)
+			ctx.RenderWithErr(ctx.Tr("form.email_been_used"), USER_NEW, &f)
 		case models.IsErrNameReserved(err):
 			ctx.Data["Err_UserName"] = true
-			ctx.RenderWithErr(ctx.Tr("user.form.name_reserved", err.(models.ErrNameReserved).Name), USER_NEW, &form)
+			ctx.RenderWithErr(ctx.Tr("user.form.name_reserved", err.(models.ErrNameReserved).Name), USER_NEW, &f)
 		case models.IsErrNamePatternNotAllowed(err):
 			ctx.Data["Err_UserName"] = true
-			ctx.RenderWithErr(ctx.Tr("user.form.name_pattern_not_allowed", err.(models.ErrNamePatternNotAllowed).Pattern), USER_NEW, &form)
+			ctx.RenderWithErr(ctx.Tr("user.form.name_pattern_not_allowed", err.(models.ErrNamePatternNotAllowed).Pattern), USER_NEW, &f)
 		default:
 			ctx.Handle(500, "CreateUser", err)
 		}
@@ -116,12 +115,12 @@ func NewUserPost(ctx *context.Context, form auth.AdminCrateUserForm) {
 	log.Trace("Account created by admin (%s): %s", ctx.User.Name, u.Name)
 
 	// Send email notification.
-	if form.SendNotify && setting.MailService != nil {
+	if f.SendNotify && setting.MailService != nil {
 		mailer.SendRegisterNotifyMail(ctx.Context, models.NewMailerUser(u))
 	}
 
 	ctx.Flash.Success(ctx.Tr("admin.users.new_success", u.Name))
-	ctx.Redirect(setting.AppSubUrl + "/admin/users/" + com.ToStr(u.ID))
+	ctx.Redirect(setting.AppSubURL + "/admin/users/" + com.ToStr(u.ID))
 }
 
 func prepareUserInfo(ctx *context.Context) *models.User {
@@ -166,7 +165,7 @@ func EditUser(ctx *context.Context) {
 	ctx.HTML(200, USER_EDIT)
 }
 
-func EditUserPost(ctx *context.Context, form auth.AdminEditUserForm) {
+func EditUserPost(ctx *context.Context, f form.AdminEditUser) {
 	ctx.Data["Title"] = ctx.Tr("admin.users.edit_account")
 	ctx.Data["PageIsAdmin"] = true
 	ctx.Data["PageIsAdminUsers"] = true
@@ -182,7 +181,7 @@ func EditUserPost(ctx *context.Context, form auth.AdminEditUserForm) {
 		return
 	}
 
-	fields := strings.Split(form.LoginType, "-")
+	fields := strings.Split(f.LoginType, "-")
 	if len(fields) == 2 {
 		loginType := models.LoginType(com.StrTo(fields[0]).MustInt())
 		loginSource := com.StrTo(fields[1]).MustInt64()
@@ -193,8 +192,8 @@ func EditUserPost(ctx *context.Context, form auth.AdminEditUserForm) {
 		}
 	}
 
-	if len(form.Password) > 0 {
-		u.Passwd = form.Password
+	if len(f.Password) > 0 {
+		u.Passwd = f.Password
 		var err error
 		if u.Salt, err = models.GetUserSalt(); err != nil {
 			ctx.Handle(500, "UpdateUser", err)
@@ -203,22 +202,22 @@ func EditUserPost(ctx *context.Context, form auth.AdminEditUserForm) {
 		u.EncodePasswd()
 	}
 
-	u.LoginName = form.LoginName
-	u.FullName = form.FullName
-	u.Email = form.Email
-	u.Website = form.Website
-	u.Location = form.Location
-	u.MaxRepoCreation = form.MaxRepoCreation
-	u.IsActive = form.Active
-	u.IsAdmin = form.Admin
-	u.AllowGitHook = form.AllowGitHook
-	u.AllowImportLocal = form.AllowImportLocal
-	u.ProhibitLogin = form.ProhibitLogin
+	u.LoginName = f.LoginName
+	u.FullName = f.FullName
+	u.Email = f.Email
+	u.Website = f.Website
+	u.Location = f.Location
+	u.MaxRepoCreation = f.MaxRepoCreation
+	u.IsActive = f.Active
+	u.IsAdmin = f.Admin
+	u.AllowGitHook = f.AllowGitHook
+	u.AllowImportLocal = f.AllowImportLocal
+	u.ProhibitLogin = f.ProhibitLogin
 
 	if err := models.UpdateUser(u); err != nil {
 		if models.IsErrEmailAlreadyUsed(err) {
 			ctx.Data["Err_Email"] = true
-			ctx.RenderWithErr(ctx.Tr("form.email_been_used"), USER_EDIT, &form)
+			ctx.RenderWithErr(ctx.Tr("form.email_been_used"), USER_EDIT, &f)
 		} else {
 			ctx.Handle(500, "UpdateUser", err)
 		}
@@ -227,7 +226,7 @@ func EditUserPost(ctx *context.Context, form auth.AdminEditUserForm) {
 	log.Trace("Account profile updated by admin (%s): %s", ctx.User.Name, u.Name)
 
 	ctx.Flash.Success(ctx.Tr("admin.users.update_profile_success"))
-	ctx.Redirect(setting.AppSubUrl + "/admin/users/" + ctx.Params(":userid"))
+	ctx.Redirect(setting.AppSubURL + "/admin/users/" + ctx.Params(":userid"))
 }
 
 func DeleteUser(ctx *context.Context) {
@@ -242,12 +241,12 @@ func DeleteUser(ctx *context.Context) {
 		case models.IsErrUserOwnRepos(err):
 			ctx.Flash.Error(ctx.Tr("admin.users.still_own_repo"))
 			ctx.JSON(200, map[string]interface{}{
-				"redirect": setting.AppSubUrl + "/admin/users/" + ctx.Params(":userid"),
+				"redirect": setting.AppSubURL + "/admin/users/" + ctx.Params(":userid"),
 			})
 		case models.IsErrUserHasOrgs(err):
 			ctx.Flash.Error(ctx.Tr("admin.users.still_has_org"))
 			ctx.JSON(200, map[string]interface{}{
-				"redirect": setting.AppSubUrl + "/admin/users/" + ctx.Params(":userid"),
+				"redirect": setting.AppSubURL + "/admin/users/" + ctx.Params(":userid"),
 			})
 		default:
 			ctx.Handle(500, "DeleteUser", err)
@@ -258,6 +257,6 @@ func DeleteUser(ctx *context.Context) {
 
 	ctx.Flash.Success(ctx.Tr("admin.users.deletion_success"))
 	ctx.JSON(200, map[string]interface{}{
-		"redirect": setting.AppSubUrl + "/admin/users",
+		"redirect": setting.AppSubURL + "/admin/users",
 	})
 }

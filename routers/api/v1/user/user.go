@@ -10,7 +10,8 @@ import (
 	api "github.com/gogits/go-gogs-client"
 
 	"github.com/gogits/gogs/models"
-	"github.com/gogits/gogs/modules/context"
+	"github.com/gogits/gogs/models/errors"
+	"github.com/gogits/gogs/pkg/context"
 )
 
 func Search(ctx *context.APIContext) {
@@ -40,7 +41,7 @@ func Search(ctx *context.APIContext) {
 			AvatarUrl: users[i].AvatarLink(),
 			FullName:  users[i].FullName,
 		}
-		if ctx.IsSigned {
+		if ctx.IsLogged {
 			results[i].Email = users[i].Email
 		}
 	}
@@ -54,7 +55,7 @@ func Search(ctx *context.APIContext) {
 func GetInfo(ctx *context.APIContext) {
 	u, err := models.GetUserByName(ctx.Params(":username"))
 	if err != nil {
-		if models.IsErrUserNotExist(err) {
+		if errors.IsUserNotExist(err) {
 			ctx.Status(404)
 		} else {
 			ctx.Error(500, "GetUserByName", err)
@@ -63,7 +64,7 @@ func GetInfo(ctx *context.APIContext) {
 	}
 
 	// Hide user e-mail when API caller isn't signed in.
-	if !ctx.IsSigned {
+	if !ctx.IsLogged {
 		u.Email = ""
 	}
 	ctx.JSON(200, u.APIFormat())

@@ -13,7 +13,7 @@ import (
 	"github.com/go-xorm/xorm"
 	log "gopkg.in/clog.v1"
 
-	"github.com/gogits/gogs/modules/base"
+	"github.com/gogits/gogs/pkg/tool"
 )
 
 const _MIN_DB_VER = 10
@@ -42,7 +42,7 @@ func (m *migration) Migrate(x *xorm.Engine) error {
 
 // The version table. Should have only one row with id==1
 type Version struct {
-	ID      int64 `xorm:"pk autoincr"`
+	ID      int64
 	Version int64
 }
 
@@ -60,6 +60,10 @@ var migrations = []Migration{
 	NewMigration("set comment updated with created", setCommentUpdatedWithCreated),
 	// v14 -> v15:v0.9.147
 	NewMigration("generate and migrate Git hooks", generateAndMigrateGitHooks),
+	// v15 -> v16:v0.10.16
+	NewMigration("update repository sizes", updateRepositorySizes),
+	// v16 -> v17:v0.10.31
+	NewMigration("remove invalid protect branch whitelist", removeInvalidProtectBranchWhitelist),
 }
 
 // Migrate database to current version
@@ -101,7 +105,7 @@ Please save following instructions to somewhere and start working:
 Once finished downloading,
 
 1. Extract the archive and to upgrade steps as usual.
-2. Run it once. To verify, you should see some migration traces. 
+2. Run it once. To verify, you should see some migration traces.
 3. Once it starts web server successfully, stop it.
 4. Now it's time to put back the release archive you originally intent to upgrade.
 5. Enjoy!
@@ -155,10 +159,10 @@ func generateOrgRandsAndSalt(x *xorm.Engine) (err error) {
 	}
 
 	for _, org := range orgs {
-		if org.Rands, err = base.GetRandomString(10); err != nil {
+		if org.Rands, err = tool.RandomString(10); err != nil {
 			return err
 		}
-		if org.Salt, err = base.GetRandomString(10); err != nil {
+		if org.Salt, err = tool.RandomString(10); err != nil {
 			return err
 		}
 		if _, err = sess.Id(org.ID).Update(org); err != nil {

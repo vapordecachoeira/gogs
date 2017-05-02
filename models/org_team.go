@@ -31,7 +31,7 @@ type Team struct {
 func (t *Team) AfterSet(colName string, _ xorm.Cell) {
 	switch colName {
 	case "num_repos":
-		// LEGACY [0.11]: this is backward compatibility bug fix for https://github.com/gogits/gogs/issues/3671
+		// LEGACY [1.0]: this is backward compatibility bug fix for https://github.com/gogits/gogs/issues/3671
 		if t.NumRepos < 0 {
 			t.NumRepos = 0
 		}
@@ -424,7 +424,7 @@ func IsTeamMember(orgID, teamID, uid int64) bool {
 
 func getTeamMembers(e Engine, teamID int64) (_ []*User, err error) {
 	teamUsers := make([]*TeamUser, 0, 10)
-	if err = e.Sql("SELECT `id`, `org_id`, `team_id`, `uid` FROM `team_user` WHERE team_id=?", teamID).
+	if err = e.Sql("SELECT `id`, `org_id`, `team_id`, `uid` FROM `team_user` WHERE team_id = ?", teamID).
 		Find(&teamUsers); err != nil {
 		return nil, fmt.Errorf("get team-users: %v", err)
 	}

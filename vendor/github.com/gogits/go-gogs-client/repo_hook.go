@@ -86,12 +86,21 @@ type PayloadCommit struct {
 	URL       string       `json:"url"`
 	Author    *PayloadUser `json:"author"`
 	Committer *PayloadUser `json:"committer"`
-	Timestamp time.Time    `json:"timestamp"`
+
+	Added    []string `json:"added"`
+	Removed  []string `json:"removed"`
+	Modified []string `json:"modified"`
+
+	Timestamp time.Time `json:"timestamp"`
 }
 
 var (
 	_ Payloader = &CreatePayload{}
+	_ Payloader = &DeletePayload{}
+	_ Payloader = &ForkPayload{}
 	_ Payloader = &PushPayload{}
+	_ Payloader = &IssuesPayload{}
+	_ Payloader = &IssueCommentPayload{}
 	_ Payloader = &PullRequestPayload{}
 )
 
@@ -103,10 +112,11 @@ var (
 //         \/             \/     \/          \/
 
 type CreatePayload struct {
-	Ref     string      `json:"ref"`
-	RefType string      `json:"ref_type"`
-	Repo    *Repository `json:"repository"`
-	Sender  *User       `json:"sender"`
+	Ref           string      `json:"ref"`
+	RefType       string      `json:"ref_type"`
+	DefaultBranch string      `json:"default_branch"`
+	Repo          *Repository `json:"repository"`
+	Sender        *User       `json:"sender"`
 }
 
 func (p *CreatePayload) JSONPayload() ([]byte, error) {
@@ -131,6 +141,48 @@ func ParseCreateHook(raw []byte) (*CreatePayload, error) {
 		return nil, ErrInvalidReceiveHook
 	}
 	return hook, nil
+}
+
+// ________         .__          __
+// \______ \   ____ |  |   _____/  |_  ____
+//  |    |  \_/ __ \|  | _/ __ \   __\/ __ \
+//  |    `   \  ___/|  |_\  ___/|  | \  ___/
+// /_______  /\___  >____/\___  >__|  \___  >
+//         \/     \/          \/          \/
+
+type PusherType string
+
+const (
+	PUSHER_TYPE_USER PusherType = "user"
+)
+
+type DeletePayload struct {
+	Ref        string      `json:"ref"`
+	RefType    string      `json:"ref_type"`
+	PusherType PusherType  `json:"pusher_type"`
+	Repo       *Repository `json:"repository"`
+	Sender     *User       `json:"sender"`
+}
+
+func (p *DeletePayload) JSONPayload() ([]byte, error) {
+	return json.MarshalIndent(p, "", "  ")
+}
+
+// ___________           __
+// \_   _____/__________|  | __
+//  |    __)/  _ \_  __ \  |/ /
+//  |     \(  <_> )  | \/    <
+//  \___  / \____/|__|  |__|_ \
+//      \/                   \/
+
+type ForkPayload struct {
+	Forkee *Repository `json:"forkee"`
+	Repo   *Repository `json:"repository"`
+	Sender *User       `json:"sender"`
+}
+
+func (p *ForkPayload) JSONPayload() ([]byte, error) {
+	return json.MarshalIndent(p, "", "  ")
 }
 
 // __________             .__
@@ -195,6 +247,8 @@ const (
 	HOOK_ISSUE_UNASSIGNED    HookIssueAction = "unassigned"
 	HOOK_ISSUE_LABEL_UPDATED HookIssueAction = "label_updated"
 	HOOK_ISSUE_LABEL_CLEARED HookIssueAction = "label_cleared"
+	HOOK_ISSUE_MILESTONED    HookIssueAction = "milestoned"
+	HOOK_ISSUE_DEMILESTONED  HookIssueAction = "demilestoned"
 	HOOK_ISSUE_SYNCHRONIZED  HookIssueAction = "synchronized"
 )
 
@@ -205,6 +259,42 @@ type ChangesFromPayload struct {
 type ChangesPayload struct {
 	Title *ChangesFromPayload `json:"title,omitempty"`
 	Body  *ChangesFromPayload `json:"body,omitempty"`
+}
+
+// IssuesPayload represents a payload information of issues event.
+type IssuesPayload struct {
+	Action     HookIssueAction `json:"action"`
+	Index      int64           `json:"number"`
+	Issue      *Issue          `json:"issue"`
+	Changes    *ChangesPayload `json:"changes,omitempty"`
+	Repository *Repository     `json:"repository"`
+	Sender     *User           `json:"sender"`
+}
+
+func (p *IssuesPayload) JSONPayload() ([]byte, error) {
+	return json.MarshalIndent(p, "", "  ")
+}
+
+type HookIssueCommentAction string
+
+const (
+	HOOK_ISSUE_COMMENT_CREATED HookIssueCommentAction = "created"
+	HOOK_ISSUE_COMMENT_EDITED  HookIssueCommentAction = "edited"
+	HOOK_ISSUE_COMMENT_DELETED HookIssueCommentAction = "deleted"
+)
+
+// IssueCommentPayload represents a payload information of issue comment event.
+type IssueCommentPayload struct {
+	Action     HookIssueCommentAction `json:"action"`
+	Issue      *Issue                 `json:"issue"`
+	Comment    *Comment               `json:"comment"`
+	Changes    *ChangesPayload        `json:"changes,omitempty"`
+	Repository *Repository            `json:"repository"`
+	Sender     *User                  `json:"sender"`
+}
+
+func (p *IssueCommentPayload) JSONPayload() ([]byte, error) {
+	return json.MarshalIndent(p, "", "  ")
 }
 
 // __________      .__  .__    __________                                     __
@@ -218,12 +308,37 @@ type ChangesPayload struct {
 type PullRequestPayload struct {
 	Action      HookIssueAction `json:"action"`
 	Index       int64           `json:"number"`
-	Changes     *ChangesPayload `json:"changes,omitempty"`
 	PullRequest *PullRequest    `json:"pull_request"`
+	Changes     *ChangesPayload `json:"changes,omitempty"`
 	Repository  *Repository     `json:"repository"`
 	Sender      *User           `json:"sender"`
 }
 
 func (p *PullRequestPayload) JSONPayload() ([]byte, error) {
+	return json.MarshalIndent(p, "", "  ")
+}
+
+// __________       .__
+// \______   \ ____ |  |   ____ _____    ______ ____
+//  |       _// __ \|  | _/ __ \\__  \  /  ___// __ \
+//  |    |   \  ___/|  |_\  ___/ / __ \_\___ \\  ___/
+//  |____|_  /\___  >____/\___  >____  /____  >\___  >
+//         \/     \/          \/     \/     \/     \/
+
+type HookReleaseAction string
+
+const (
+	HOOK_RELEASE_PUBLISHED HookReleaseAction = "published"
+)
+
+// ReleasePayload represents a payload information of release event.
+type ReleasePayload struct {
+	Action     HookReleaseAction `json:"action"`
+	Release    *Release          `json:"release"`
+	Repository *Repository       `json:"repository"`
+	Sender     *User             `json:"sender"`
+}
+
+func (p *ReleasePayload) JSONPayload() ([]byte, error) {
 	return json.MarshalIndent(p, "", "  ")
 }

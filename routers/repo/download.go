@@ -10,8 +10,9 @@ import (
 
 	"github.com/gogits/git-module"
 
-	"github.com/gogits/gogs/modules/base"
-	"github.com/gogits/gogs/modules/context"
+	"github.com/gogits/gogs/pkg/tool"
+	"github.com/gogits/gogs/pkg/context"
+	"github.com/gogits/gogs/pkg/setting"
 )
 
 func ServeData(ctx *context.Context, name string, reader io.Reader) error {
@@ -21,12 +22,12 @@ func ServeData(ctx *context.Context, name string, reader io.Reader) error {
 		buf = buf[:n]
 	}
 
-	if !base.IsTextFile(buf) {
-		if !base.IsImageFile(buf) {
-			ctx.Resp.Header().Set("Content-Disposition", "attachment; filename=\""+path.Base(ctx.Repo.TreePath)+"\"")
+	if !tool.IsTextFile(buf) {
+		if !tool.IsImageFile(buf) {
+			ctx.Resp.Header().Set("Content-Disposition", "attachment; filename=\""+name+"\"")
 			ctx.Resp.Header().Set("Content-Transfer-Encoding", "binary")
 		}
-	} else if !ctx.QueryBool("render") {
+	} else if !setting.Repository.EnableRawFileRenderMode || !ctx.QueryBool("render") {
 		ctx.Resp.Header().Set("Content-Type", "text/plain; charset=utf-8")
 	}
 	ctx.Resp.Write(buf)
@@ -40,7 +41,7 @@ func ServeBlob(ctx *context.Context, blob *git.Blob) error {
 		return err
 	}
 
-	return ServeData(ctx, ctx.Repo.TreePath, dataRc)
+	return ServeData(ctx, path.Base(ctx.Repo.TreePath), dataRc)
 }
 
 func SingleDownload(ctx *context.Context) {

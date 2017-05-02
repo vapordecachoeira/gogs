@@ -11,16 +11,16 @@ import (
 	log "gopkg.in/clog.v1"
 
 	"github.com/gogits/gogs/models"
-	"github.com/gogits/gogs/modules/auth"
-	"github.com/gogits/gogs/modules/base"
-	"github.com/gogits/gogs/modules/context"
+	"github.com/gogits/gogs/models/errors"
+	"github.com/gogits/gogs/pkg/context"
+	"github.com/gogits/gogs/pkg/form"
 )
 
 const (
-	TEAMS             base.TplName = "org/team/teams"
-	TEAM_NEW          base.TplName = "org/team/new"
-	TEAM_MEMBERS      base.TplName = "org/team/members"
-	TEAM_REPOSITORIES base.TplName = "org/team/repositories"
+	TEAMS             = "org/team/teams"
+	TEAM_NEW          = "org/team/new"
+	TEAM_MEMBERS      = "org/team/members"
+	TEAM_REPOSITORIES = "org/team/repositories"
 )
 
 func Teams(ctx *context.Context) {
@@ -73,7 +73,7 @@ func TeamsAction(ctx *context.Context) {
 		var u *models.User
 		u, err = models.GetUserByName(uname)
 		if err != nil {
-			if models.IsErrUserNotExist(err) {
+			if errors.IsUserNotExist(err) {
 				ctx.Flash.Error(ctx.Tr("form.user_not_exist"))
 				ctx.Redirect(ctx.Org.OrgLink + "/teams/" + ctx.Org.Team.LowerName)
 			} else {
@@ -120,7 +120,7 @@ func TeamsRepoAction(ctx *context.Context) {
 		var repo *models.Repository
 		repo, err = models.GetRepositoryByName(ctx.Org.Organization.ID, repoName)
 		if err != nil {
-			if models.IsErrRepoNotExist(err) {
+			if errors.IsRepoNotExist(err) {
 				ctx.Flash.Error(ctx.Tr("org.teams.add_nonexistent_repo"))
 				ctx.Redirect(ctx.Org.OrgLink + "/teams/" + ctx.Org.Team.LowerName + "/repositories")
 				return
@@ -149,16 +149,16 @@ func NewTeam(ctx *context.Context) {
 	ctx.HTML(200, TEAM_NEW)
 }
 
-func NewTeamPost(ctx *context.Context, form auth.CreateTeamForm) {
+func NewTeamPost(ctx *context.Context, f form.CreateTeam) {
 	ctx.Data["Title"] = ctx.Org.Organization.FullName
 	ctx.Data["PageIsOrgTeams"] = true
 	ctx.Data["PageIsOrgTeamsNew"] = true
 
 	t := &models.Team{
 		OrgID:       ctx.Org.Organization.ID,
-		Name:        form.TeamName,
-		Description: form.Description,
-		Authorize:   models.ParseAccessMode(form.Permission),
+		Name:        f.TeamName,
+		Description: f.Description,
+		Authorize:   models.ParseAccessMode(f.Permission),
 	}
 	ctx.Data["Team"] = t
 
@@ -171,9 +171,9 @@ func NewTeamPost(ctx *context.Context, form auth.CreateTeamForm) {
 		ctx.Data["Err_TeamName"] = true
 		switch {
 		case models.IsErrTeamAlreadyExist(err):
-			ctx.RenderWithErr(ctx.Tr("form.team_name_been_taken"), TEAM_NEW, &form)
+			ctx.RenderWithErr(ctx.Tr("form.team_name_been_taken"), TEAM_NEW, &f)
 		case models.IsErrNameReserved(err):
-			ctx.RenderWithErr(ctx.Tr("org.form.team_name_reserved", err.(models.ErrNameReserved).Name), TEAM_NEW, &form)
+			ctx.RenderWithErr(ctx.Tr("org.form.team_name_reserved", err.(models.ErrNameReserved).Name), TEAM_NEW, &f)
 		default:
 			ctx.Handle(500, "NewTeam", err)
 		}
@@ -211,7 +211,7 @@ func EditTeam(ctx *context.Context) {
 	ctx.HTML(200, TEAM_NEW)
 }
 
-func EditTeamPost(ctx *context.Context, form auth.CreateTeamForm) {
+func EditTeamPost(ctx *context.Context, f form.CreateTeam) {
 	t := ctx.Org.Team
 	ctx.Data["Title"] = ctx.Org.Organization.FullName
 	ctx.Data["PageIsOrgTeams"] = true
@@ -226,7 +226,7 @@ func EditTeamPost(ctx *context.Context, form auth.CreateTeamForm) {
 	if !t.IsOwnerTeam() {
 		// Validate permission level.
 		var auth models.AccessMode
-		switch form.Permission {
+		switch f.Permission {
 		case "read":
 			auth = models.ACCESS_MODE_READ
 		case "write":
@@ -238,18 +238,18 @@ func EditTeamPost(ctx *context.Context, form auth.CreateTeamForm) {
 			return
 		}
 
-		t.Name = form.TeamName
+		t.Name = f.TeamName
 		if t.Authorize != auth {
 			isAuthChanged = true
 			t.Authorize = auth
 		}
 	}
-	t.Description = form.Description
+	t.Description = f.Description
 	if err := models.UpdateTeam(t, isAuthChanged); err != nil {
 		ctx.Data["Err_TeamName"] = true
 		switch {
 		case models.IsErrTeamAlreadyExist(err):
-			ctx.RenderWithErr(ctx.Tr("form.team_name_been_taken"), TEAM_NEW, &form)
+			ctx.RenderWithErr(ctx.Tr("form.team_name_been_taken"), TEAM_NEW, &f)
 		default:
 			ctx.Handle(500, "UpdateTeam", err)
 		}

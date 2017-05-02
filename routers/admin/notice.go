@@ -10,13 +10,12 @@ import (
 	log "gopkg.in/clog.v1"
 
 	"github.com/gogits/gogs/models"
-	"github.com/gogits/gogs/modules/base"
-	"github.com/gogits/gogs/modules/context"
-	"github.com/gogits/gogs/modules/setting"
+	"github.com/gogits/gogs/pkg/context"
+	"github.com/gogits/gogs/pkg/setting"
 )
 
 const (
-	NOTICES base.TplName = "admin/notice"
+	NOTICES = "admin/notice"
 )
 
 func Notices(ctx *context.Context) {
@@ -69,5 +68,5 @@ func EmptyNotices(ctx *context.Context) {
 
 	log.Trace("System notices deleted by admin (%s): [start: %d]", ctx.User.Name, 0)
 	ctx.Flash.Success(ctx.Tr("admin.notices.delete_success"))
-	ctx.Redirect(setting.AppSubUrl + "/admin/notices")
+	ctx.Redirect(setting.AppSubURL + "/admin/notices")
 }

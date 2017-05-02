@@ -15,7 +15,8 @@ import (
 
 	api "github.com/gogits/go-gogs-client"
 
-	"github.com/gogits/gogs/modules/markdown"
+	"github.com/gogits/gogs/models/errors"
+	"github.com/gogits/gogs/pkg/markup"
 )
 
 // CommentType defines whether a comment is just a simple comment, an action (like close) or a reference.
@@ -95,7 +96,7 @@ func (c *Comment) loadAttributes(e Engine) (err error) {
 	if c.Poster == nil {
 		c.Poster, err = GetUserByID(c.PosterID)
 		if err != nil {
-			if IsErrUserNotExist(err) {
+			if errors.IsUserNotExist(err) {
 				c.PosterID = -1
 				c.Poster = NewGhostUser()
 			} else {
@@ -150,9 +151,13 @@ func (c *Comment) APIFormat() *api.Comment {
 	}
 }
 
+func CommentHashTag(id int64) string {
+	return "issuecomment-" + com.ToStr(id)
+}
+
 // HashTag returns unique hash tag for comment.
 func (c *Comment) HashTag() string {
-	return "issuecomment-" + com.ToStr(c.ID)
+	return CommentHashTag(c.ID)
 }
 
 // EventTag returns unique event hash tag for comment.
@@ -163,7 +168,7 @@ func (c *Comment) EventTag() string {
 // mailParticipants sends new comment emails to repository watchers
 // and mentioned people.
 func (cmt *Comment) mailParticipants(e Engine, opType ActionType, issue *Issue) (err error) {
-	mentions := markdown.FindAllMentions(cmt.Content)
+	mentions := markup.FindAllMentions(cmt.Content)
 	if err = updateIssueMentions(e, cmt.IssueID, mentions); err != nil {
 		return fmt.Errorf("UpdateIssueMentions [%d]: %v", cmt.IssueID, err)
 	}
@@ -330,7 +335,7 @@ func CreateComment(opts *CreateCommentOptions) (comment *Comment, err error) {
 
 // CreateIssueComment creates a plain issue comment.
 func CreateIssueComment(doer *User, repo *Repository, issue *Issue, content string, attachments []string) (*Comment, error) {
-	return CreateComment(&CreateCommentOptions{
+	comment, err := CreateComment(&CreateCommentOptions{
 		Type:        COMMENT_TYPE_COMMENT,
 		Doer:        doer,
 		Repo:        repo,
@@ -338,6 +343,22 @@ func CreateIssueComment(doer *User, repo *Repository, issue *Issue, content stri
 		Content:     content,
 		Attachments: attachments,
 	})
+	if err != nil {
+		return nil, fmt.Errorf("CreateComment: %v", err)
+	}
+
+	comment.Issue = issue
+	if err = PrepareWebhooks(repo, HOOK_EVENT_ISSUE_COMMENT, &api.IssueCommentPayload{
+		Action:     api.HOOK_ISSUE_COMMENT_CREATED,
+		Issue:      issue.APIFormat(),
+		Comment:    comment.APIFormat(),
+		Repository: repo.APIFormat(nil),
+		Sender:     doer.APIFormat(),
+	}); err != nil {
+		log.Error(2, "PrepareWebhooks [comment_id: %d]: %v", comment.ID, err)
+	}
+
+	return comment, nil
 }
 
 // CreateRefComment creates a commit reference comment to issue.
@@ -437,13 +458,33 @@ func GetCommentsByRepoIDSince(repoID, since int64) ([]*Comment, error) {
 }
 
 // UpdateComment updates information of comment.
-func UpdateComment(c *Comment) error {
-	_, err := x.Id(c.ID).AllCols().Update(c)
-	return err
+func UpdateComment(doer *User, c *Comment, oldContent string) (err error) {
+	if _, err = x.Id(c.ID).AllCols().Update(c); err != nil {
+		return err
+	}
+
+	if err = c.Issue.LoadAttributes(); err != nil {
+		log.Error(2, "Issue.LoadAttributes [issue_id: %d]: %v", c.IssueID, err)
+	} else if err = PrepareWebhooks(c.Issue.Repo, HOOK_EVENT_ISSUE_COMMENT, &api.IssueCommentPayload{
+		Action:  api.HOOK_ISSUE_COMMENT_EDITED,
+		Issue:   c.Issue.APIFormat(),
+		Comment: c.APIFormat(),
+		Changes: &api.ChangesPayload{
+			Body: &api.ChangesFromPayload{
+				From: oldContent,
+			},
+		},
+		Repository: c.Issue.Repo.APIFormat(nil),
+		Sender:     doer.APIFormat(),
+	}); err != nil {
+		log.Error(2, "PrepareWebhooks [comment_id: %d]: %v", c.ID, err)
+	}
+
+	return nil
 }
 
 // DeleteCommentByID deletes the comment by given ID.
-func DeleteCommentByID(id int64) error {
+func DeleteCommentByID(doer *User, id int64) error {
 	comment, err := GetCommentByID(id)
 	if err != nil {
 		if IsErrCommentNotExist(err) {
@@ -468,5 +509,20 @@ func DeleteCommentByID(id int64) error {
 		}
 	}
 
-	return sess.Commit()
+	if err = sess.Commit(); err != nil {
+		return fmt.Errorf("Commit: %v", err)
+	}
+
+	if err = comment.Issue.LoadAttributes(); err != nil {
+		log.Error(2, "Issue.LoadAttributes [issue_id: %d]: %v", comment.IssueID, err)
+	} else if err = PrepareWebhooks(comment.Issue.Repo, HOOK_EVENT_ISSUE_COMMENT, &api.IssueCommentPayload{
+		Action:     api.HOOK_ISSUE_COMMENT_DELETED,
+		Issue:      comment.Issue.APIFormat(),
+		Comment:    comment.APIFormat(),
+		Repository: comment.Issue.Repo.APIFormat(nil),
+		Sender:     doer.APIFormat(),
+	}); err != nil {
+		log.Error(2, "PrepareWebhooks [comment_id: %d]: %v", comment.ID, err)
+	}
+	return nil
 }

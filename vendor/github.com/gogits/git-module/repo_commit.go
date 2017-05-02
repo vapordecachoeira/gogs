@@ -106,7 +106,7 @@ func (repo *Repository) getCommit(id sha1) (*Commit, error) {
 
 	data, err := NewCommand("cat-file", "-p", id.String()).RunInDirBytes(repo.Path)
 	if err != nil {
-		if strings.Contains(err.Error(), "fatal: Not a valid object name") {
+		if strings.Contains(err.Error(), "exit status 128") {
 			return nil, ErrNotExist{id.String(), ""}
 		}
 		return nil, err
@@ -129,6 +129,9 @@ func (repo *Repository) GetCommit(commitID string) (*Commit, error) {
 		var err error
 		commitID, err = NewCommand("rev-parse", commitID).RunInDir(repo.Path)
 		if err != nil {
+			if strings.Contains(err.Error(), "exit status 128") {
+				return nil, ErrNotExist{commitID, ""}
+			}
 			return nil, err
 		}
 	}
@@ -209,10 +212,10 @@ func (repo *Repository) CommitsByRangeSize(revision string, page, size int) (*li
 	return repo.parsePrettyFormatLogToList(stdout)
 }
 
-const DEFAULT_COMMITS_PAGE_SIZE = 30
+var DefaultCommitsPageSize = 30
 
 func (repo *Repository) CommitsByRange(revision string, page int) (*list.List, error) {
-	return repo.CommitsByRangeSize(revision, page, DEFAULT_COMMITS_PAGE_SIZE)
+	return repo.CommitsByRangeSize(revision, page, DefaultCommitsPageSize)
 }
 
 func (repo *Repository) searchCommits(id sha1, keyword string) (*list.List, error) {
@@ -245,7 +248,7 @@ func (repo *Repository) CommitsByFileAndRangeSize(revision, file string, page, s
 }
 
 func (repo *Repository) CommitsByFileAndRange(revision, file string, page int) (*list.List, error) {
-	return repo.CommitsByFileAndRangeSize(revision, file, page, DEFAULT_COMMITS_PAGE_SIZE)
+	return repo.CommitsByFileAndRangeSize(revision, file, page, DefaultCommitsPageSize)
 }
 
 func (repo *Repository) FilesCountBetween(startCommitID, endCommitID string) (int, error) {

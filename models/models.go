@@ -5,7 +5,9 @@
 package models
 
 import (
+	"bufio"
 	"database/sql"
+	"encoding/json"
 	"errors"
 	"fmt"
 	"net/url"
@@ -13,17 +15,19 @@ import (
 	"path"
 	"strings"
 
+	"github.com/Unknwon/com"
 	_ "github.com/denisenkom/go-mssqldb"
 	_ "github.com/go-sql-driver/mysql"
 	"github.com/go-xorm/core"
 	"github.com/go-xorm/xorm"
 	_ "github.com/lib/pq"
+	log "gopkg.in/clog.v1"
 
 	"github.com/gogits/gogs/models/migrations"
-	"github.com/gogits/gogs/modules/setting"
+	"github.com/gogits/gogs/pkg/setting"
 )
 
-// Engine represents a xorm engine or session.
+// Engine represents a XORM engine or session.
 type Engine interface {
 	Delete(interface{}) (int64, error)
 	Exec(string, ...interface{}) (sql.Result, error)
@@ -60,7 +64,7 @@ var (
 
 func init() {
 	tables = append(tables,
-		new(User), new(PublicKey), new(AccessToken),
+		new(User), new(PublicKey), new(AccessToken), new(TwoFactor), new(TwoFactorRecoveryCode),
 		new(Repository), new(DeployKey), new(Collaboration), new(Access), new(Upload),
 		new(Watch), new(Star), new(Follow), new(Action),
 		new(Issue), new(PullRequest), new(Comment), new(Attachment), new(IssueUser),
@@ -189,18 +193,22 @@ func SetEngine() (err error) {
 
 	// WARNING: for serv command, MUST remove the output to os.stdout,
 	// so use log file to instead print to stdout.
-	logPath := path.Join(setting.LogRootPath, "xorm.log")
-	os.MkdirAll(path.Dir(logPath), os.ModePerm)
-
-	f, err := os.Create(logPath)
+	sec := setting.Cfg.Section("log.xorm")
+	logger, err := log.NewFileWriter(path.Join(setting.LogRootPath, "xorm.log"),
+		log.FileRotationConfig{
+			Rotate:  sec.Key("ROTATE").MustBool(true),
+			Daily:   sec.Key("ROTATE_DAILY").MustBool(true),
+			MaxSize: sec.Key("MAX_SIZE").MustInt64(100) * 1024 * 1024,
+			MaxDays: sec.Key("MAX_DAYS").MustInt64(3),
+		})
 	if err != nil {
-		return fmt.Errorf("Fail to create xorm.log: %v", err)
+		return fmt.Errorf("Fail to create 'xorm.log': %v", err)
 	}
 
 	if setting.ProdMode {
-		x.SetLogger(xorm.NewSimpleLogger3(f, xorm.DEFAULT_LOG_PREFIX, xorm.DEFAULT_LOG_FLAG, core.LOG_WARNING))
+		x.SetLogger(xorm.NewSimpleLogger3(logger, xorm.DEFAULT_LOG_PREFIX, xorm.DEFAULT_LOG_FLAG, core.LOG_WARNING))
 	} else {
-		x.SetLogger(xorm.NewSimpleLogger(f))
+		x.SetLogger(xorm.NewSimpleLogger(logger))
 	}
 	x.ShowSQL(true)
 	return nil
@@ -262,7 +270,89 @@ func Ping() error {
 	return x.Ping()
 }
 
-// DumpDatabase dumps all data from database to file system.
-func DumpDatabase(filePath string) error {
-	return x.DumpAllToFile(filePath)
+// The version table. Should have only one row with id==1
+type Version struct {
+	ID      int64
+	Version int64
+}
+
+// DumpDatabase dumps all data from database to file system in JSON format.
+func DumpDatabase(dirPath string) (err error) {
+	os.MkdirAll(dirPath, os.ModePerm)
+	// Purposely create a local variable to not modify global variable
+	tables := append(tables, new(Version))
+	for _, table := range tables {
+		tableName := strings.TrimPrefix(fmt.Sprintf("%T", table), "*models.")
+		tableFile := path.Join(dirPath, tableName+".json")
+		f, err := os.Create(tableFile)
+		if err != nil {
+			return fmt.Errorf("fail to create JSON file: %v", err)
+		}
+
+		if err = x.Asc("id").Iterate(table, func(idx int, bean interface{}) (err error) {
+			enc := json.NewEncoder(f)
+			return enc.Encode(bean)
+		}); err != nil {
+			f.Close()
+			return fmt.Errorf("fail to dump table '%s': %v", tableName, err)
+		}
+		f.Close()
+	}
+	return nil
+}
+
+// ImportDatabase imports data from backup archive.
+func ImportDatabase(dirPath string) (err error) {
+	// Purposely create a local variable to not modify global variable
+	tables := append(tables, new(Version))
+	for _, table := range tables {
+		tableName := strings.TrimPrefix(fmt.Sprintf("%T", table), "*models.")
+		tableFile := path.Join(dirPath, tableName+".json")
+		if !com.IsExist(tableFile) {
+			continue
+		}
+
+		if err = x.DropTables(table); err != nil {
+			return fmt.Errorf("fail to drop table '%s': %v", tableName, err)
+		} else if err = x.Sync2(table); err != nil {
+			return fmt.Errorf("fail to sync table '%s': %v", tableName, err)
+		}
+
+		f, err := os.Open(tableFile)
+		if err != nil {
+			return fmt.Errorf("fail to open JSON file: %v", err)
+		}
+		scanner := bufio.NewScanner(f)
+		for scanner.Scan() {
+			switch bean := table.(type) {
+			case *LoginSource:
+				meta := make(map[string]interface{})
+				if err = json.Unmarshal(scanner.Bytes(), &meta); err != nil {
+					return fmt.Errorf("fail to unmarshal to map: %v", err)
+				}
+
+				tp := LoginType(com.StrTo(com.ToStr(meta["Type"])).MustInt64())
+				switch tp {
+				case LOGIN_LDAP, LOGIN_DLDAP:
+					bean.Cfg = new(LDAPConfig)
+				case LOGIN_SMTP:
+					bean.Cfg = new(SMTPConfig)
+				case LOGIN_PAM:
+					bean.Cfg = new(PAMConfig)
+				default:
+					return fmt.Errorf("unrecognized login source type:: %v", tp)
+				}
+				table = bean
+			}
+
+			if err = json.Unmarshal(scanner.Bytes(), table); err != nil {
+				return fmt.Errorf("fail to unmarshal to struct: %v", err)
+			}
+
+			if _, err = x.Insert(table); err != nil {
+				return fmt.Errorf("fail to insert strcut: %v", err)
+			}
+		}
+	}
+	return nil
 }

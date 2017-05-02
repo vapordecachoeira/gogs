@@ -11,8 +11,9 @@ import (
 	api "github.com/gogits/go-gogs-client"
 
 	"github.com/gogits/gogs/models"
-	"github.com/gogits/gogs/modules/context"
-	"github.com/gogits/gogs/modules/setting"
+	"github.com/gogits/gogs/models/errors"
+	"github.com/gogits/gogs/pkg/context"
+	"github.com/gogits/gogs/pkg/setting"
 )
 
 func listIssues(ctx *context.APIContext, opts *models.IssuesOptions) {
@@ -63,7 +64,7 @@ func ListIssues(ctx *context.APIContext) {
 func GetIssue(ctx *context.APIContext) {
 	issue, err := models.GetIssueByIndex(ctx.Repo.Repository.ID, ctx.ParamsInt64(":index"))
 	if err != nil {
-		if models.IsErrIssueNotExist(err) {
+		if errors.IsIssueNotExist(err) {
 			ctx.Status(404)
 		} else {
 			ctx.Error(500, "GetIssueByIndex", err)
@@ -86,7 +87,7 @@ func CreateIssue(ctx *context.APIContext, form api.CreateIssueOption) {
 		if len(form.Assignee) > 0 {
 			assignee, err := models.GetUserByName(form.Assignee)
 			if err != nil {
-				if models.IsErrUserNotExist(err) {
+				if errors.IsUserNotExist(err) {
 					ctx.Error(422, "", fmt.Sprintf("Assignee does not exist: [name: %s]", form.Assignee))
 				} else {
 					ctx.Error(500, "GetUserByName", err)
@@ -125,7 +126,7 @@ func CreateIssue(ctx *context.APIContext, form api.CreateIssueOption) {
 func EditIssue(ctx *context.APIContext, form api.EditIssueOption) {
 	issue, err := models.GetIssueByIndex(ctx.Repo.Repository.ID, ctx.ParamsInt64(":index"))
 	if err != nil {
-		if models.IsErrIssueNotExist(err) {
+		if errors.IsIssueNotExist(err) {
 			ctx.Status(404)
 		} else {
 			ctx.Error(500, "GetIssueByIndex", err)
@@ -152,7 +153,7 @@ func EditIssue(ctx *context.APIContext, form api.EditIssueOption) {
 		} else {
 			assignee, err := models.GetUserByName(*form.Assignee)
 			if err != nil {
-				if models.IsErrUserNotExist(err) {
+				if errors.IsUserNotExist(err) {
 					ctx.Error(422, "", fmt.Sprintf("assignee does not exist: [name: %s]", *form.Assignee))
 				} else {
 					ctx.Error(500, "GetUserByName", err)
@@ -171,7 +172,7 @@ func EditIssue(ctx *context.APIContext, form api.EditIssueOption) {
 		issue.MilestoneID != *form.Milestone {
 		oldMilestoneID := issue.MilestoneID
 		issue.MilestoneID = *form.Milestone
-		if err = models.ChangeMilestoneAssign(issue, oldMilestoneID); err != nil {
+		if err = models.ChangeMilestoneAssign(ctx.User, issue, oldMilestoneID); err != nil {
 			ctx.Error(500, "ChangeMilestoneAssign", err)
 			return
 		}

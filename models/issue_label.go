@@ -15,7 +15,7 @@ import (
 
 	api "github.com/gogits/go-gogs-client"
 
-	"github.com/gogits/gogs/modules/base"
+	"github.com/gogits/gogs/pkg/tool"
 )
 
 var labelColorPattern = regexp.MustCompile("#([a-fA-F0-9]{6})")
@@ -138,7 +138,7 @@ func GetLabelOfRepoByID(repoID, labelID int64) (*Label, error) {
 // it silently ignores label IDs that are not belong to the repository.
 func GetLabelsInRepoByIDs(repoID int64, labelIDs []int64) ([]*Label, error) {
 	labels := make([]*Label, 0, len(labelIDs))
-	return labels, x.Where("repo_id = ?", repoID).In("id", base.Int64sToStrings(labelIDs)).Asc("name").Find(&labels)
+	return labels, x.Where("repo_id = ?", repoID).In("id", tool.Int64sToStrings(labelIDs)).Asc("name").Find(&labels)
 }
 
 // GetLabelsByRepoID returns all labels that belong to given repository by ID.
@@ -161,7 +161,7 @@ func getLabelsByIssueID(e Engine, issueID int64) ([]*Label, error) {
 	}
 
 	labels := make([]*Label, 0, len(labelIDs))
-	return labels, e.Where("id > 0").In("id", base.Int64sToStrings(labelIDs)).Asc("name").Find(&labels)
+	return labels, e.Where("id > 0").In("id", tool.Int64sToStrings(labelIDs)).Asc("name").Find(&labels)
 }
 
 // GetLabelsByIssueID returns all labels that belong to given issue by ID.
@@ -240,7 +240,13 @@ func newIssueLabel(e *xorm.Session, issue *Issue, label *Label) (err error) {
 	if issue.IsClosed {
 		label.NumClosedIssues++
 	}
-	return updateLabel(e, label)
+
+	if err = updateLabel(e, label); err != nil {
+		return fmt.Errorf("updateLabel: %v", err)
+	}
+
+	issue.Labels = append(issue.Labels, label)
+	return nil
 }
 
 // NewIssueLabel creates a new issue-label relation.
@@ -313,7 +319,17 @@ func deleteIssueLabel(e *xorm.Session, issue *Issue, label *Label) (err error) {
 	if issue.IsClosed {
 		label.NumClosedIssues--
 	}
-	return updateLabel(e, label)
+	if err = updateLabel(e, label); err != nil {
+		return fmt.Errorf("updateLabel: %v", err)
+	}
+
+	for i := range issue.Labels {
+		if issue.Labels[i].ID == label.ID {
+			issue.Labels = append(issue.Labels[:i], issue.Labels[i+1:]...)
+			break
+		}
+	}
+	return nil
 }
 
 // DeleteIssueLabel deletes issue-label relation.

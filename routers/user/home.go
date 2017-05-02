@@ -12,16 +12,17 @@ import (
 	"github.com/Unknwon/paginater"
 
 	"github.com/gogits/gogs/models"
-	"github.com/gogits/gogs/modules/base"
-	"github.com/gogits/gogs/modules/context"
-	"github.com/gogits/gogs/modules/setting"
+	"github.com/gogits/gogs/models/errors"
+	"github.com/gogits/gogs/pkg/context"
+	"github.com/gogits/gogs/pkg/setting"
 )
 
 const (
-	DASHBOARD base.TplName = "user/dashboard/dashboard"
-	ISSUES    base.TplName = "user/dashboard/issues"
-	PROFILE   base.TplName = "user/profile"
-	ORG_HOME  base.TplName = "org/home"
+	DASHBOARD = "user/dashboard/dashboard"
+	NEWS_FEED = "user/dashboard/feeds"
+	ISSUES    = "user/dashboard/issues"
+	PROFILE   = "user/profile"
+	ORG_HOME  = "org/home"
 )
 
 // getDashboardContextUser finds out dashboard is viewing as which context user.
@@ -32,11 +33,7 @@ func getDashboardContextUser(ctx *context.Context) *models.User {
 		// Organization.
 		org, err := models.GetUserByName(orgName)
 		if err != nil {
-			if models.IsErrUserNotExist(err) {
-				ctx.Handle(404, "GetUserByName", err)
-			} else {
-				ctx.Handle(500, "GetUserByName", err)
-			}
+			ctx.NotFoundOrServerError("GetUserByName", errors.IsUserNotExist, err)
 			return nil
 		}
 		ctxUser = org
@@ -55,8 +52,8 @@ func getDashboardContextUser(ctx *context.Context) *models.User {
 // retrieveFeeds loads feeds from database by given context user.
 // The user could be organization so it is not always the logged in user,
 // which is why we have to explicitly pass the context user ID.
-func retrieveFeeds(ctx *context.Context, ctxUser *models.User, userID, offset int64, isProfile bool) {
-	actions, err := models.GetFeeds(ctxUser, userID, offset, isProfile)
+func retrieveFeeds(ctx *context.Context, ctxUser *models.User, userID int64, isProfile bool) {
+	actions, err := models.GetFeeds(ctxUser, userID, ctx.QueryInt64("after_id"), isProfile)
 	if err != nil {
 		ctx.Handle(500, "GetFeeds", err)
 		return
@@ -71,7 +68,7 @@ func retrieveFeeds(ctx *context.Context, ctxUser *models.User, userID, offset in
 		if !ok {
 			u, err := models.GetUserByName(act.ActUserName)
 			if err != nil {
-				if models.IsErrUserNotExist(err) {
+				if errors.IsUserNotExist(err) {
 					continue
 				}
 				ctx.Handle(500, "GetUserByName", err)
@@ -84,11 +81,26 @@ func retrieveFeeds(ctx *context.Context, ctxUser *models.User, userID, offset in
 		feeds = append(feeds, act)
 	}
 	ctx.Data["Feeds"] = feeds
+	if len(feeds) > 0 {
+		afterID := feeds[len(feeds)-1].ID
+		ctx.Data["AfterID"] = afterID
+		ctx.Header().Set("X-AJAX-URL", fmt.Sprintf("%s?after_id=%d", ctx.Data["Link"], afterID))
+	}
 }
 
 func Dashboard(ctx *context.Context) {
 	ctxUser := getDashboardContextUser(ctx)
 	if ctx.Written() {
+		return
+	}
+
+	retrieveFeeds(ctx, ctxUser, ctx.User.ID, false)
+	if ctx.Written() {
+		return
+	}
+
+	if ctx.Req.Header.Get("X-AJAX") == "true" {
+		ctx.HTML(200, NEWS_FEED)
 		return
 	}
 
@@ -111,8 +123,9 @@ func Dashboard(ctx *context.Context) {
 
 	var err error
 	var repos, mirrors []*models.Repository
+	var repoCount int64
 	if ctxUser.IsOrganization() {
-		repos, _, err = ctxUser.GetUserRepositories(ctx.User.ID, 1, setting.UI.User.RepoPagingNum)
+		repos, repoCount, err = ctxUser.GetUserRepositories(ctx.User.ID, 1, setting.UI.User.RepoPagingNum)
 		if err != nil {
 			ctx.Handle(500, "GetUserRepositories", err)
 			return
@@ -129,6 +142,7 @@ func Dashboard(ctx *context.Context) {
 			return
 		}
 		repos = ctxUser.Repos
+		repoCount = int64(ctxUser.NumRepos)
 
 		mirrors, err = ctxUser.GetMirrorRepositories()
 		if err != nil {
@@ -137,6 +151,7 @@ func Dashboard(ctx *context.Context) {
 		}
 	}
 	ctx.Data["Repos"] = repos
+	ctx.Data["RepoCount"] = repoCount
 	ctx.Data["MaxShowRepoNum"] = setting.UI.User.RepoPagingNum
 
 	if err := models.MirrorRepositoryList(mirrors).LoadAttributes(); err != nil {
@@ -146,10 +161,6 @@ func Dashboard(ctx *context.Context) {
 	ctx.Data["MirrorCount"] = len(mirrors)
 	ctx.Data["Mirrors"] = mirrors
 
-	retrieveFeeds(ctx, ctxUser, ctx.User.ID, 0, false)
-	if ctx.Written() {
-		return
-	}
 	ctx.HTML(200, DASHBOARD)
 }
 
@@ -368,7 +379,7 @@ func showOrgProfile(ctx *context.Context) {
 		count int64
 		err   error
 	)
-	if ctx.IsSigned && !ctx.User.IsAdmin {
+	if ctx.IsLogged && !ctx.User.IsAdmin {
 		repos, count, err = org.GetUserRepositories(ctx.User.ID, page, setting.UI.User.RepoPagingNum)
 		if err != nil {
 			ctx.Handle(500, "GetUserRepositories", err)
@@ -376,7 +387,7 @@ func showOrgProfile(ctx *context.Context) {
 		}
 		ctx.Data["Repos"] = repos
 	} else {
-		showPrivate := ctx.IsSigned && ctx.User.IsAdmin
+		showPrivate := ctx.IsLogged && ctx.User.IsAdmin
 		repos, err = models.GetUserRepositories(&models.UserRepoOptions{
 			UserID:   org.ID,
 			Private:  showPrivate,
@@ -406,12 +417,8 @@ func showOrgProfile(ctx *context.Context) {
 func Email2User(ctx *context.Context) {
 	u, err := models.GetUserByEmail(ctx.Query("email"))
 	if err != nil {
-		if models.IsErrUserNotExist(err) {
-			ctx.Handle(404, "GetUserByEmail", err)
-		} else {
-			ctx.Handle(500, "GetUserByEmail", err)
-		}
+		ctx.NotFoundOrServerError("GetUserByEmail", errors.IsUserNotExist, err)
 		return
 	}
-	ctx.Redirect(setting.AppSubUrl + "/user/" + u.Name)
+	ctx.Redirect(setting.AppSubURL + "/user/" + u.Name)
 }

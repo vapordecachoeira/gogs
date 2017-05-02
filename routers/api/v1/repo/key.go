@@ -10,13 +10,13 @@ import (
 	api "github.com/gogits/go-gogs-client"
 
 	"github.com/gogits/gogs/models"
-	"github.com/gogits/gogs/modules/context"
-	"github.com/gogits/gogs/modules/setting"
+	"github.com/gogits/gogs/pkg/context"
+	"github.com/gogits/gogs/pkg/setting"
 	"github.com/gogits/gogs/routers/api/v1/convert"
 )
 
 func composeDeployKeysAPILink(repoPath string) string {
-	return setting.AppUrl + "api/v1/repos/" + repoPath + "/keys/"
+	return setting.AppURL + "api/v1/repos/" + repoPath + "/keys/"
 }
 
 // https://github.com/gogits/go-gogs-client/wiki/Repositories-Deploy-Keys#list-deploy-keys

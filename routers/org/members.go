@@ -9,14 +9,14 @@ import (
 	log "gopkg.in/clog.v1"
 
 	"github.com/gogits/gogs/models"
-	"github.com/gogits/gogs/modules/base"
-	"github.com/gogits/gogs/modules/context"
-	"github.com/gogits/gogs/modules/setting"
+	"github.com/gogits/gogs/models/errors"
+	"github.com/gogits/gogs/pkg/context"
+	"github.com/gogits/gogs/pkg/setting"
 )
 
 const (
-	MEMBERS       base.TplName = "org/member/members"
-	MEMBER_INVITE base.TplName = "org/member/invite"
+	MEMBERS       = "org/member/members"
+	MEMBER_INVITE = "org/member/invite"
 )
 
 func Members(ctx *context.Context) {
@@ -87,7 +87,7 @@ func MembersAction(ctx *context.Context) {
 	if ctx.Params(":action") != "leave" {
 		ctx.Redirect(ctx.Org.OrgLink + "/members")
 	} else {
-		ctx.Redirect(setting.AppSubUrl + "/")
+		ctx.Redirect(setting.AppSubURL + "/")
 	}
 }
 
@@ -100,7 +100,7 @@ func Invitation(ctx *context.Context) {
 		uname := ctx.Query("uname")
 		u, err := models.GetUserByName(uname)
 		if err != nil {
-			if models.IsErrUserNotExist(err) {
+			if errors.IsUserNotExist(err) {
 				ctx.Flash.Error(ctx.Tr("form.user_not_exist"))
 				ctx.Redirect(ctx.Org.OrgLink + "/invitations/new")
 			} else {

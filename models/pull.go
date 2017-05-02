@@ -18,9 +18,10 @@ import (
 	"github.com/gogits/git-module"
 	api "github.com/gogits/go-gogs-client"
 
-	"github.com/gogits/gogs/modules/process"
-	"github.com/gogits/gogs/modules/setting"
-	"github.com/gogits/gogs/modules/sync"
+	"github.com/gogits/gogs/models/errors"
+	"github.com/gogits/gogs/pkg/process"
+	"github.com/gogits/gogs/pkg/setting"
+	"github.com/gogits/gogs/pkg/sync"
 )
 
 var PullRequestQueue = sync.NewUniqueQueue(setting.Repository.PullRequestQueueLength)
@@ -87,7 +88,7 @@ func (pr *PullRequest) AfterSet(colName string, _ xorm.Cell) {
 func (pr *PullRequest) loadAttributes(e Engine) (err error) {
 	if pr.HeadRepo == nil {
 		pr.HeadRepo, err = getRepositoryByID(e, pr.HeadRepoID)
-		if err != nil && !IsErrRepoNotExist(err) {
+		if err != nil && !errors.IsRepoNotExist(err) {
 			return fmt.Errorf("getRepositoryByID.(HeadRepo) [%d]: %v", pr.HeadRepoID, err)
 		}
 	}
@@ -101,7 +102,7 @@ func (pr *PullRequest) loadAttributes(e Engine) (err error) {
 
 	if pr.HasMerged && pr.Merger == nil {
 		pr.Merger, err = getUserByID(e, pr.MergerID)
-		if IsErrUserNotExist(err) {
+		if errors.IsUserNotExist(err) {
 			pr.MergerID = -1
 			pr.Merger = NewGhostUser()
 		} else if err != nil {
@@ -277,12 +278,12 @@ func (pr *PullRequest) Merge(doer *User, baseGitRepo *git.Repository) (err error
 	}
 
 	if err = MergePullRequestAction(doer, pr.Issue.Repo, pr.Issue); err != nil {
-		log.Error(4, "MergePullRequestAction [%d]: %v", pr.ID, err)
+		log.Error(2, "MergePullRequestAction [%d]: %v", pr.ID, err)
 	}
 
 	// Reload pull request information.
 	if err = pr.LoadAttributes(); err != nil {
-		log.Error(4, "LoadAttributes: %v", err)
+		log.Error(2, "LoadAttributes: %v", err)
 		return nil
 	}
 	if err = PrepareWebhooks(pr.Issue.Repo, HOOK_EVENT_PULL_REQUEST, &api.PullRequestPayload{
@@ -292,13 +293,13 @@ func (pr *PullRequest) Merge(doer *User, baseGitRepo *git.Repository) (err error
 		Repository:  pr.Issue.Repo.APIFormat(nil),
 		Sender:      doer.APIFormat(),
 	}); err != nil {
-		log.Error(4, "PrepareWebhooks: %v", err)
+		log.Error(2, "PrepareWebhooks: %v", err)
 		return nil
 	}
 
 	l, err := headGitRepo.CommitsBetweenIDs(pr.MergedCommitID, pr.MergeBase)
 	if err != nil {
-		log.Error(4, "CommitsBetweenIDs: %v", err)
+		log.Error(2, "CommitsBetweenIDs: %v", err)
 		return nil
 	}
 
@@ -308,33 +309,32 @@ func (pr *PullRequest) Merge(doer *User, baseGitRepo *git.Repository) (err error
 	// to avoid strange diff commits produced.
 	mergeCommit, err := baseGitRepo.GetBranchCommit(pr.BaseBranch)
 	if err != nil {
-		log.Error(4, "GetBranchCommit: %v", err)
+		log.Error(2, "GetBranchCommit: %v", err)
 		return nil
 	}
 	l.PushFront(mergeCommit)
+
+	commits, err := ListToPushCommits(l).ToApiPayloadCommits(pr.BaseRepo.RepoPath(), pr.BaseRepo.HTMLURL())
+	if err != nil {
+		log.Error(2, "ToApiPayloadCommits: %v", err)
+		return nil
+	}
 
 	p := &api.PushPayload{
 		Ref:        git.BRANCH_PREFIX + pr.BaseBranch,
 		Before:     pr.MergeBase,
 		After:      pr.MergedCommitID,
-		CompareURL: setting.AppUrl + pr.BaseRepo.ComposeCompareURL(pr.MergeBase, pr.MergedCommitID),
-		Commits:    ListToPushCommits(l).ToApiPayloadCommits(pr.BaseRepo.HTMLURL()),
+		CompareURL: setting.AppURL + pr.BaseRepo.ComposeCompareURL(pr.MergeBase, pr.MergedCommitID),
+		Commits:    commits,
 		Repo:       pr.BaseRepo.APIFormat(nil),
 		Pusher:     pr.HeadRepo.MustOwner().APIFormat(),
 		Sender:     doer.APIFormat(),
 	}
 	if err = PrepareWebhooks(pr.BaseRepo, HOOK_EVENT_PUSH, p); err != nil {
-		return fmt.Errorf("PrepareWebhooks: %v", err)
+		log.Error(2, "PrepareWebhooks: %v", err)
+		return nil
 	}
 	return nil
-}
-
-// patchConflicts is a list of conflit description from Git.
-var patchConflicts = []string{
-	"patch does not apply",
-	"already exists in working directory",
-	"unrecognized input",
-	"error:",
 }
 
 // testPatch checks if patch can be merged to base repository without conflit.
@@ -372,16 +372,9 @@ func (pr *PullRequest) testPatch() (err error) {
 		fmt.Sprintf("testPatch (git apply --check): %d", pr.BaseRepo.ID),
 		"git", "apply", "--check", patchPath)
 	if err != nil {
-		for i := range patchConflicts {
-			if strings.Contains(stderr, patchConflicts[i]) {
-				log.Trace("PullRequest[%d].testPatch (apply): has conflit", pr.ID)
-				fmt.Println(stderr)
-				pr.Status = PULL_REQUEST_STATUS_CONFLICT
-				return nil
-			}
-		}
-
-		return fmt.Errorf("git apply --check: %v - %s", err, stderr)
+		log.Trace("PullRequest[%d].testPatch (apply): has conflit\n%s", pr.ID, stderr)
+		pr.Status = PULL_REQUEST_STATUS_CONFLICT
+		return nil
 	}
 	return nil
 }
@@ -437,9 +430,10 @@ func NewPullRequest(repo *Repository, pull *Issue, labelIDs []int64, uuids []str
 		RepoName:     repo.Name,
 		IsPrivate:    repo.IsPrivate,
 	}); err != nil {
-		log.Error(4, "NotifyWatchers: %v", err)
-	} else if err = pull.MailParticipants(); err != nil {
-		log.Error(4, "MailParticipants: %v", err)
+		log.Error(2, "NotifyWatchers: %v", err)
+	}
+	if err = pull.MailParticipants(); err != nil {
+		log.Error(2, "MailParticipants: %v", err)
 	}
 
 	pr.Issue = pull
@@ -451,9 +445,8 @@ func NewPullRequest(repo *Repository, pull *Issue, labelIDs []int64, uuids []str
 		Repository:  repo.APIFormat(nil),
 		Sender:      pull.Poster.APIFormat(),
 	}); err != nil {
-		log.Error(4, "PrepareWebhooks: %v", err)
+		log.Error(2, "PrepareWebhooks: %v", err)
 	}
-	go HookQueue.Add(repo.ID)
 
 	return nil
 }
@@ -614,7 +607,7 @@ func (pr *PullRequest) AddToTaskQueue() {
 	go PullRequestQueue.AddFunc(pr.ID, func() {
 		pr.Status = PULL_REQUEST_STATUS_CHECKING
 		if err := pr.UpdateCols("status"); err != nil {
-			log.Error(5, "AddToTaskQueue.UpdateCols[%d].(add to queue): %v", pr.ID, err)
+			log.Error(3, "AddToTaskQueue.UpdateCols[%d].(add to queue): %v", pr.ID, err)
 		}
 	})
 }
@@ -627,16 +620,18 @@ func (prs PullRequestList) loadAttributes(e Engine) (err error) {
 	}
 
 	// Load issues
-	issueIDs := make([]int64, 0, len(prs))
+	set := make(map[int64]*Issue)
 	for i := range prs {
-		issueIDs = append(issueIDs, prs[i].IssueID)
+		set[prs[i].IssueID] = nil
+	}
+	issueIDs := make([]int64, 0, len(prs))
+	for issueID := range set {
+		issueIDs = append(issueIDs, issueID)
 	}
 	issues := make([]*Issue, 0, len(issueIDs))
 	if err = e.Where("id > 0").In("id", issueIDs).Find(&issues); err != nil {
 		return fmt.Errorf("find issues: %v", err)
 	}
-
-	set := make(map[int64]*Issue)
 	for i := range issues {
 		set[issues[i].ID] = issues[i]
 	}
@@ -679,20 +674,20 @@ func AddTestPullRequestTask(doer *User, repoID int64, branch string, isSync bool
 	log.Trace("AddTestPullRequestTask [head_repo_id: %d, head_branch: %s]: finding pull requests", repoID, branch)
 	prs, err := GetUnmergedPullRequestsByHeadInfo(repoID, branch)
 	if err != nil {
-		log.Error(4, "Find pull requests [head_repo_id: %d, head_branch: %s]: %v", repoID, branch, err)
+		log.Error(2, "Find pull requests [head_repo_id: %d, head_branch: %s]: %v", repoID, branch, err)
 		return
 	}
 
 	if isSync {
 		if err = PullRequestList(prs).LoadAttributes(); err != nil {
-			log.Error(4, "PullRequestList.LoadAttributes: %v", err)
+			log.Error(2, "PullRequestList.LoadAttributes: %v", err)
 		}
 
 		if err == nil {
 			for _, pr := range prs {
 				pr.Issue.PullRequest = pr
 				if err = pr.Issue.LoadAttributes(); err != nil {
-					log.Error(4, "LoadAttributes: %v", err)
+					log.Error(2, "LoadAttributes: %v", err)
 					continue
 				}
 				if err = PrepareWebhooks(pr.Issue.Repo, HOOK_EVENT_PULL_REQUEST, &api.PullRequestPayload{
@@ -702,10 +697,9 @@ func AddTestPullRequestTask(doer *User, repoID int64, branch string, isSync bool
 					Repository:  pr.Issue.Repo.APIFormat(nil),
 					Sender:      doer.APIFormat(),
 				}); err != nil {
-					log.Error(4, "PrepareWebhooks [pull_id: %v]: %v", pr.ID, err)
+					log.Error(2, "PrepareWebhooks [pull_id: %v]: %v", pr.ID, err)
 					continue
 				}
-				go HookQueue.Add(pr.Issue.Repo.ID)
 			}
 		}
 	}
@@ -715,7 +709,7 @@ func AddTestPullRequestTask(doer *User, repoID int64, branch string, isSync bool
 	log.Trace("AddTestPullRequestTask [base_repo_id: %d, base_branch: %s]: finding pull requests", repoID, branch)
 	prs, err = GetUnmergedPullRequestsByBaseInfo(repoID, branch)
 	if err != nil {
-		log.Error(4, "Find pull requests [base_repo_id: %d, base_branch: %s]: %v", repoID, branch, err)
+		log.Error(2, "Find pull requests [base_repo_id: %d, base_branch: %s]: %v", repoID, branch, err)
 		return
 	}
 	for _, pr := range prs {

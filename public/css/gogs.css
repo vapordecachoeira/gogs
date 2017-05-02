@@ -5,9 +5,20 @@
   background-size: contain;
 }
 body {
-  font-family: "Helvetica Neue", "Microsoft YaHei", Arial, Helvetica, sans-serif !important;
+  font-family: "PingFang SC", "Helvetica Neue", "Microsoft YaHei", Arial, Helvetica, sans-serif !important;
   background-color: #fff;
   overflow-y: scroll;
+}
+h1,
+h2,
+h3,
+h4,
+h5,
+.ui.header,
+.ui.menu,
+.ui.input input,
+.ui.button:not(.label) {
+  font-family: "PingFang SC", 'Hiragino Sans GB', "Helvetica Neue", "Microsoft YaHei", Arial, Helvetica, sans-serif !important;
 }
 img {
   border-radius: 3px;
@@ -124,6 +135,14 @@ code.wrap {
 }
 .ui.form .ui.button {
   font-weight: normal;
+}
+.ui.form .box.field {
+  padding-left: 27px;
+}
+.ui.menu,
+.ui.vertical.menu,
+.ui.segment {
+  box-shadow: none;
 }
 .ui .text.red {
   color: #d95c5c !important;
@@ -884,7 +903,7 @@ footer .ui.language .menu {
   width: 320px !important;
 }
 .install form input {
-  width: 35% !important;
+  width: 300px !important;
 }
 .install form .field {
   text-align: left;
@@ -893,17 +912,16 @@ footer .ui.language .menu {
   margin-left: 335px !important;
 }
 .install form .field.optional .title {
-  margin-left: 38%;
+  margin-left: 320px !important;
 }
-.install .ui .checkbox {
-  margin-left: 40% !important;
+.install .ui.checkbox {
+  margin-left: 335px !important;
 }
-.install .ui .checkbox label {
+.install .ui.checkbox label {
   width: auto !important;
 }
-.install #use-builtin-ssh-server {
+.install .inline.checkbox {
   margin-top: -1em;
-  margin-left: -15px !important;
   margin-bottom: 2em;
 }
 .form .help {
@@ -946,7 +964,7 @@ footer .ui.language .menu {
 }
 #create-page-form form input,
 #create-page-form form textarea {
-  width: 50%!important;
+  width: 50% !important;
 }
 .user.activate form,
 .user.forgot.password form,
@@ -1003,14 +1021,14 @@ footer .ui.language .menu {
 .user.reset.password form textarea,
 .user.signin form textarea,
 .user.signup form textarea {
-  width: 50%!important;
+  width: 50% !important;
 }
 .user.activate form,
 .user.forgot.password form,
 .user.reset.password form,
 .user.signin form,
 .user.signup form {
-  width: 700px!important;
+  width: 700px !important;
 }
 .user.activate form .header,
 .user.forgot.password form .header,
@@ -1025,6 +1043,12 @@ footer .ui.language .menu {
 .user.signin form .inline.field > label,
 .user.signup form .inline.field > label {
   width: 200px !important;
+}
+.user.signin.two-factor form {
+  width: 300px !important;
+}
+.user.signin.two-factor form .header {
+  padding-left: inherit !important;
 }
 .repository.new.repo form,
 .repository.new.migrate form,
@@ -1065,7 +1089,7 @@ footer .ui.language .menu {
 .repository.new.repo form textarea,
 .repository.new.migrate form textarea,
 .repository.new.fork form textarea {
-  width: 50%!important;
+  width: 50% !important;
 }
 .repository.new.repo form .dropdown .dropdown.icon,
 .repository.new.migrate form .dropdown .dropdown.icon,
@@ -1178,6 +1202,7 @@ footer .ui.language .menu {
   float: left;
   margin-left: -5px;
   margin-right: -7px;
+  width: 16px;
 }
 .repository .filter.menu .menu {
   max-height: 300px;
@@ -1223,6 +1248,33 @@ footer .ui.language .menu {
   right: 0!important;
   left: auto!important;
 }
+.repository.branches:not(.settings) .ui.list {
+  padding: 0;
+}
+.repository.branches:not(.settings) .ui.list > .item {
+  margin: 0;
+  line-height: 31px;
+}
+.repository.branches:not(.settings) .ui.list > .item:not(:last-child) {
+  border-bottom: 1px solid #DDD;
+}
+.repository.branches:not(.settings) .ui.list > .item .column {
+  padding: 5px 15px;
+}
+.repository.branches:not(.settings) .ui.list > .item .column .octicon {
+  vertical-align: text-bottom;
+}
+.repository.branches:not(.settings) .ui.list > .item .column code {
+  padding: 4px 0;
+  font-size: 12px;
+}
+.repository.branches:not(.settings) .ui.list > .item .column .ui.text:not(i) {
+  font-size: 12px;
+}
+.repository.branches:not(.settings) .ui.list > .item .column .ui.button {
+  font-size: 12px;
+  padding: 8px 10px;
+}
 .repository.file.list #repo-desc {
   font-size: 1.2em;
 }
@@ -1235,6 +1287,20 @@ footer .ui.language .menu {
 .repository.file.list #file-buttons .ui.button {
   padding: 8px 10px;
   font-weight: normal;
+}
+.repository.file.list #git-stats {
+  padding: 10px;
+  line-height: 0;
+}
+.repository.file.list #git-stats .list {
+  width: 100%;
+}
+.repository.file.list #git-stats .list .item {
+  margin-left: 0;
+  width: 33.33%;
+}
+.repository.file.list #git-stats .list .item .text b {
+  font-size: 15px;
 }
 .repository.file.list #repo-files-table thead th {
   padding-top: 8px;
@@ -1397,7 +1463,8 @@ footer .ui.language .menu {
 }
 .repository.file.list #file-content .plain-text {
   font-size: 14px;
-  padding: 10px 15px;
+  padding: 15px 15px 10px 15px;
+  font-family: Consolas;
 }
 .repository.file.list #file-content .code-view * {
   font-size: 12px;
@@ -1859,24 +1926,24 @@ footer .ui.language .menu {
   list-style: none;
   padding-top: 15px;
 }
-.repository .label.list .item {
+.repository .label.list > .item {
   padding-top: 10px;
   padding-bottom: 10px;
   border-bottom: 1px dashed #AAA;
 }
-.repository .label.list .item a {
+.repository .label.list > .item a {
   font-size: 15px;
   padding-top: 5px;
   padding-right: 10px;
   color: #666;
 }
-.repository .label.list .item a:hover {
+.repository .label.list > .item a:hover {
   color: #000;
 }
-.repository .label.list .item a.open-issues {
+.repository .label.list > .item a.open-issues {
   margin-right: 30px;
 }
-.repository .label.list .item .ui.label {
+.repository .label.list > .item .ui.label {
   font-size: 1em;
 }
 .repository .milestone.list {
@@ -2165,11 +2232,11 @@ footer .ui.language .menu {
 }
 .repository.release #release-list > li .meta .tag:not(.icon) {
   display: block;
-  margin-top: 15px;
+  margin-top: 6px;
 }
 .repository.release #release-list > li .meta .commit {
   display: block;
-  margin-top: 10px;
+  margin-top: 6px;
 }
 .repository.release #release-list > li .detail {
   border-left: 1px solid #DDD;
@@ -2265,15 +2332,16 @@ footer .ui.language .menu {
 .repository.wiki.view .ui.sub.header {
   text-transform: none;
 }
-.repository.wiki.view > .markdown {
-  padding: 15px 30px;
+.repository.wiki.view .markdown {
+  padding-left: 25px;
+  margin-left: -25px;
 }
-.repository.wiki.view > .markdown h1:first-of-type,
-.repository.wiki.view > .markdown h2:first-of-type,
-.repository.wiki.view > .markdown h3:first-of-type,
-.repository.wiki.view > .markdown h4:first-of-type,
-.repository.wiki.view > .markdown h5:first-of-type,
-.repository.wiki.view > .markdown h6:first-of-type {
+.repository.wiki.view .markdown h1:first-of-type,
+.repository.wiki.view .markdown h2:first-of-type,
+.repository.wiki.view .markdown h3:first-of-type,
+.repository.wiki.view .markdown h4:first-of-type,
+.repository.wiki.view .markdown h5:first-of-type,
+.repository.wiki.view .markdown h6:first-of-type {
   margin-top: 0;
 }
 .repository.settings.collaboration .collaborator.list {
@@ -2293,28 +2361,28 @@ footer .ui.language .menu {
   margin-left: 5px;
   margin-top: -3px;
 }
-.repository.settings.branches .protected-branches .selection.dropdown {
+.repository.settings.settings.branches .protected-branches .selection.dropdown {
   width: 300px;
 }
-.repository.settings.branches .protected-branches .item {
+.repository.settings.settings.branches .protected-branches .item {
   border: 1px solid #eaeaea;
   padding: 10px 15px;
 }
-.repository.settings.branches .protected-branches .item:not(:last-child) {
+.repository.settings.settings.branches .protected-branches .item:not(:last-child) {
   border-bottom: 0;
 }
-.repository.settings.branches .branch-protection .help {
+.repository.settings.settings.branches .branch-protection .help {
   margin-left: 26px;
   padding-top: 0;
 }
-.repository.settings.branches .branch-protection .fields {
+.repository.settings.settings.branches .branch-protection .fields {
   margin-left: 20px;
   display: block;
 }
-.repository.settings.branches .branch-protection .whitelist {
+.repository.settings.settings.branches .branch-protection .whitelist {
   margin-left: 26px;
 }
-.repository.settings.branches .branch-protection .whitelist .dropdown img {
+.repository.settings.settings.branches .branch-protection .whitelist .dropdown img {
   display: inline-block;
 }
 .repository.settings.webhooks .types .menu .item {
@@ -2330,6 +2398,15 @@ footer .ui.language .menu {
   font-size: 13px;
   margin-left: 26px;
   padding-top: 0;
+}
+.webhook .hook.history.list .right.menu .redelivery.button {
+  font-size: 12px;
+  margin-top: 6px;
+  height: 30px;
+}
+.webhook .hook.history.list .right.menu .redelivery.button .octicon {
+  font: normal normal normal 13px/1 Octicons;
+  width: 12px;
 }
 .user-cards .list {
   padding: 0;
@@ -2427,10 +2504,6 @@ footer .ui.language .menu {
 }
 .settings .content {
   margin-top: 2px;
-}
-.settings .content > .header,
-.settings .content .segment {
-  box-shadow: 0 1px 2px 0 rgba(34, 36, 38, 0.15);
 }
 .settings .key.list .item:not(:first-child) {
   border-top: 1px solid #eaeaea;
@@ -2687,7 +2760,7 @@ footer .ui.language .menu {
 }
 .organization.new.org form input,
 .organization.new.org form textarea {
-  width: 50%!important;
+  width: 50% !important;
 }
 .organization.options input {
   min-width: 300px;
@@ -2791,15 +2864,39 @@ footer .ui.language .menu {
 .user.settings .email.list .item:not(:first-child) .button {
   margin-top: -10px;
 }
-.user.settings .orgs.non-empty {
+.user.settings .email.list .item .ui.primary.label {
+  margin-top: -5px;
+}
+.user.settings.sshkeys .right.floated.button,
+.user.settings.applications .right.floated.button {
+  padding-top: 1rem;
+  padding-bottom: 1rem;
+}
+.user.settings.security .two-factor .toggle.button {
+  margin-top: -5px;
+}
+.user.settings.repositories .repos {
   padding: 0;
 }
-.user.settings .orgs .item {
+.user.settings.repositories .repos .item {
+  padding: 15px;
+  height: 46px;
+}
+.user.settings.repositories .repos .item .button {
+  margin-top: -5px;
+}
+.user.settings.organizations .orgs.non-empty {
+  padding: 0;
+}
+.user.settings.organizations .orgs .item {
   padding: 10px;
 }
-.user.settings .orgs .item .button {
+.user.settings.organizations .orgs .item .button {
   margin-top: 5px;
   margin-right: 8px;
+}
+.user.profile .ui.card .header {
+  word-break: break-all;
 }
 .user.profile .ui.card .username {
   display: block;
@@ -2922,7 +3019,7 @@ footer .ui.language .menu {
   font-family: Consolas, monospace;
 }
 .feeds .news code {
-  padding: 1px;
+  padding: 3px;
   font-size: 85%;
   background-color: rgba(0, 0, 0, 0.04);
   border-radius: 3px;
@@ -2994,10 +3091,6 @@ footer .ui.language .menu {
 .admin .table.segment:not(.select) td:first-of-type {
   padding-left: 15px !important;
 }
-.admin .ui.header,
-.admin .ui.segment {
-  box-shadow: 0 1px 2px 0 rgba(34, 36, 38, 0.15);
-}
 .admin.user .email {
   max-width: 200px;
 }
@@ -3019,6 +3112,19 @@ footer .ui.language .menu {
 }
 .admin.config #test-mail-btn {
   margin-left: 5px;
+}
+.admin.config table tbody tr td:first-child {
+  font-weight: bold;
+}
+.admin.config pre {
+  background-color: #f7f7f7;
+  padding: 5px;
+}
+.admin.config .log-config table tbody tr td:first-child {
+  width: 100px;
+}
+.admin.config .log-config table tbody tr td:not(first-child) {
+  max-width: 0;
 }
 .explore {
   padding-top: 15px;

@@ -33,6 +33,24 @@
 			"revisionTime": "2017-02-05T23:42:31Z"
 		},
 		{
+			"checksumSHA1": "tLl952GRIVsso2Pk/IH3cMJaK8E=",
+			"path": "github.com/boombuler/barcode",
+			"revision": "0dc17c9053c4956f07a6db58b2863924fe03b643",
+			"revisionTime": "2017-04-03T18:34:37Z"
+		},
+		{
+			"checksumSHA1": "tbwzn+sWiZv6veyXae3qRfTjlcQ=",
+			"path": "github.com/boombuler/barcode/qr",
+			"revision": "0dc17c9053c4956f07a6db58b2863924fe03b643",
+			"revisionTime": "2017-04-03T18:34:37Z"
+		},
+		{
+			"checksumSHA1": "axe0OTdOjYa+XKDUYqzOv7FGaWo=",
+			"path": "github.com/boombuler/barcode/utils",
+			"revision": "0dc17c9053c4956f07a6db58b2863924fe03b643",
+			"revisionTime": "2017-04-03T18:34:37Z"
+		},
+		{
 			"checksumSHA1": "fNAC4qgZDqF3kxq74/yyk3PWdy8=",
 			"path": "github.com/bradfitz/gomemcache/memcache",
 			"revision": "fb1f79c6b65acda83063cbc69f6bba1522558bfc",
@@ -75,10 +93,10 @@
 			"revisionTime": "2015-10-13T08:11:02Z"
 		},
 		{
-			"checksumSHA1": "ifjG+PNGY7+sNm3WoA3UntmUTa4=",
+			"checksumSHA1": "kWnClaQsy/2YLvx2SrSUGgSyhzk=",
 			"path": "github.com/go-macaron/captcha",
-			"revision": "8aa5919789ab301e865595eb4b1114d6b9847deb",
-			"revisionTime": "2015-11-23T22:51:53Z"
+			"revision": "a9d45b762e2537878323cd8a4147644378f09be1",
+			"revisionTime": "2017-03-28T22:26:02Z"
 		},
 		{
 			"checksumSHA1": "i52HJHpyI3avut3QAIrrD0h7gmY=",
@@ -105,10 +123,10 @@
 			"revisionTime": "2016-06-27T17:00:12Z"
 		},
 		{
-			"checksumSHA1": "bwYWc6t4Lapw4Xl3v4o2hzOZ5kw=",
+			"checksumSHA1": "gO0dj0NqsmBTkf4D0JzJDtOEx+U=",
 			"path": "github.com/go-macaron/session",
-			"revision": "66031fcb37a0fff002a1f028eb0b3a815c78306b",
-			"revisionTime": "2015-10-14T03:41:01Z"
+			"revision": "b8e286a0dba8f4999042d6b258daf51b31d08938",
+			"revisionTime": "2017-03-20T17:22:09Z"
 		},
 		{
 			"checksumSHA1": "jVW5CmzplA0UDjai0AFYJFVXAJk=",
@@ -159,22 +177,28 @@
 			"revisionTime": "2016-08-10T03:50:02Z"
 		},
 		{
-			"checksumSHA1": "RnWB5UDcTpSGepvWnwic1SyRZrc=",
+			"checksumSHA1": "OmDPIa3NWPpl/rItpYC/Ig/m/gI=",
 			"path": "github.com/gogits/git-module",
-			"revision": "1b9552bab7499e5cbd96f6b550aaa0038faf6b67",
-			"revisionTime": "2017-02-19T18:16:29Z"
+			"revision": "1ebf9618c02c9480312bb55bccda7886c8d4caac",
+			"revisionTime": "2017-04-07T00:57:10Z"
 		},
 		{
-			"checksumSHA1": "exKX51W/Hieq7OOmYK2gYn+Huuw=",
+			"checksumSHA1": "mMYDXzTNUWg8ZTRhqXEF+7KaSpU=",
 			"path": "github.com/gogits/go-gogs-client",
-			"revision": "f12fbacb5495120dc62dae7cfdf140d39bf6f715",
-			"revisionTime": "2017-02-24T06:16:35Z"
+			"revision": "9447dded395900409c1d3ad641a2d72502b46282",
+			"revisionTime": "2017-04-07T22:14:43Z"
 		},
 		{
 			"checksumSHA1": "p4yoFWgDiTfpu1JYgh26t6+VDTk=",
 			"path": "github.com/gogits/go-libravatar",
 			"revision": "cd1abbd55d09b793672732a7a1dfdaa12a40dfd0",
 			"revisionTime": "2016-11-20T02:51:54Z"
+		},
+		{
+			"checksumSHA1": "cccKtXG5TiCiCT9JA85slbJokfw=",
+			"path": "github.com/gogits/minwinsvc",
+			"revision": "95be6356811a6fbd4c2981713236971a3ccbb33a",
+			"revisionTime": "2017-03-01T03:54:11Z"
 		},
 		{
 			"checksumSHA1": "MLO0PyrK2MUO6A7Z9PxWuu43C/A=",
@@ -193,12 +217,6 @@
 			"path": "github.com/jtolds/gls",
 			"revision": "8ddce2a84170772b95dd5d576c48d517b22cac63",
 			"revisionTime": "2016-01-05T22:08:40Z"
-		},
-		{
-			"checksumSHA1": "/dBJ2h8Jo359deiC5GQ8ZYzX8M8=",
-			"path": "github.com/kardianos/minwinsvc",
-			"revision": "cad6b2b879b0970e4245a20ebf1a81a756e2bb70",
-			"revisionTime": "2015-11-22T16:33:09Z"
 		},
 		{
 			"checksumSHA1": "vfzz7zTL9TZLpFO7NC1H6/Du3+s=",
@@ -277,6 +295,24 @@
 			"path": "github.com/nfnt/resize",
 			"revision": "891127d8d1b52734debe1b3c3d7e747502b6c366",
 			"revisionTime": "2016-07-24T20:39:20Z"
+		},
+		{
+			"checksumSHA1": "woY3inKe+d7B1jPTFxVKNCCFH9c=",
+			"path": "github.com/pquerna/otp",
+			"revision": "9e1935374bc73ffe011187dafed51a412b90fe43",
+			"revisionTime": "2017-02-23T01:06:52Z"
+		},
+		{
+			"checksumSHA1": "xo32aXW4ZXXRHJ/9E6m10vXJZAo=",
+			"path": "github.com/pquerna/otp/hotp",
+			"revision": "9e1935374bc73ffe011187dafed51a412b90fe43",
+			"revisionTime": "2017-02-23T01:06:52Z"
+		},
+		{
+			"checksumSHA1": "Ie55pTQw1rnOZ8KDekSDXUWDT1I=",
+			"path": "github.com/pquerna/otp/totp",
+			"revision": "9e1935374bc73ffe011187dafed51a412b90fe43",
+			"revisionTime": "2017-02-23T01:06:52Z"
 		},
 		{
 			"checksumSHA1": "c7jHQZk5ZEsFR9EXsWJXkszPBZA=",
@@ -375,10 +411,10 @@
 			"revisionTime": "2016-12-13T22:25:08Z"
 		},
 		{
-			"checksumSHA1": "RnJfaFwKpC0h06J2MZ8UZX2eohc=",
+			"checksumSHA1": "fsrFs762jlaILyqqQImS1GfvIvw=",
 			"path": "golang.org/x/crypto/ssh",
-			"revision": "d8e61c69ab46ca38328da2f4995abaf93b252290",
-			"revisionTime": "2016-12-13T22:25:08Z"
+			"revision": "453249f01cfeb54c3d549ddb75ff152ca243f9d8",
+			"revisionTime": "2017-02-08T20:51:15Z"
 		},
 		{
 			"checksumSHA1": "9jjO5GjLa0XF/nfWihF02RoH4qc=",
@@ -525,10 +561,10 @@
 			"revisionTime": "2015-09-24T05:17:56Z"
 		},
 		{
-			"checksumSHA1": "TlOZMrb/wY8vsDIGkXlmxsbDLP0=",
+			"checksumSHA1": "ZJBrUSDBKgkXID1MVRkXSTlmOh4=",
 			"path": "gopkg.in/clog.v1",
-			"revision": "bf4bf4a49c663cd0963f8775a4b60d30a75098d1",
-			"revisionTime": "2017-02-17T23:04:09Z"
+			"revision": "ff5a366d133e02b3d411dbe3854ebd912a434c7f",
+			"revisionTime": "2017-03-23T22:33:02Z"
 		},
 		{
 			"checksumSHA1": "LIu3jihd3edOyIsJJK3V6vx2UZg=",

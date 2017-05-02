@@ -13,10 +13,10 @@ import (
 	"github.com/urfave/cli"
 
 	"github.com/gogits/gogs/cmd"
-	"github.com/gogits/gogs/modules/setting"
+	"github.com/gogits/gogs/pkg/setting"
 )
 
-const APP_VER = "0.10.1.0228"
+const APP_VER = "0.11.6.0407"
 
 func init() {
 	setting.AppVer = APP_VER
@@ -28,13 +28,14 @@ func main() {
 	app.Usage = "A painless self-hosted Git service"
 	app.Version = APP_VER
 	app.Commands = []cli.Command{
-		cmd.CmdWeb,
+		cmd.Web,
 		cmd.Serv,
-		cmd.CmdHook,
-		cmd.CmdDump,
-		cmd.CmdCert,
-		cmd.CmdAdmin,
-		cmd.CmdImport,
+		cmd.Hook,
+		cmd.Cert,
+		cmd.Admin,
+		cmd.Import,
+		cmd.Backup,
+		cmd.Restore,
 	}
 	app.Flags = append(app.Flags, []cli.Flag{}...)
 	app.Run(os.Args)

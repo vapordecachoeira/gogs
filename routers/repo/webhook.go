@@ -6,7 +6,6 @@ package repo
 
 import (
 	"encoding/json"
-	"errors"
 	"fmt"
 	"strings"
 
@@ -16,16 +15,16 @@ import (
 	api "github.com/gogits/go-gogs-client"
 
 	"github.com/gogits/gogs/models"
-	"github.com/gogits/gogs/modules/auth"
-	"github.com/gogits/gogs/modules/base"
-	"github.com/gogits/gogs/modules/context"
-	"github.com/gogits/gogs/modules/setting"
+	"github.com/gogits/gogs/models/errors"
+	"github.com/gogits/gogs/pkg/context"
+	"github.com/gogits/gogs/pkg/form"
+	"github.com/gogits/gogs/pkg/setting"
 )
 
 const (
-	WEBHOOKS        base.TplName = "repo/settings/webhooks"
-	WEBHOOK_NEW     base.TplName = "repo/settings/webhook_new"
-	ORG_WEBHOOK_NEW base.TplName = "org/settings/webhook_new"
+	WEBHOOKS        = "repo/settings/webhook/base"
+	WEBHOOK_NEW     = "repo/settings/webhook/new"
+	ORG_WEBHOOK_NEW = "org/settings/webhook_new"
 )
 
 func Webhooks(ctx *context.Context) {
@@ -49,12 +48,13 @@ type OrgRepoCtx struct {
 	OrgID       int64
 	RepoID      int64
 	Link        string
-	NewTemplate base.TplName
+	NewTemplate string
 }
 
 // getOrgRepoCtx determines whether this is a repo context or organization context.
 func getOrgRepoCtx(ctx *context.Context) (*OrgRepoCtx, error) {
 	if len(ctx.Repo.RepoLink) > 0 {
+		ctx.Data["PageIsRepositoryContext"] = true
 		return &OrgRepoCtx{
 			RepoID:      ctx.Repo.Repository.ID,
 			Link:        ctx.Repo.RepoLink,
@@ -63,6 +63,7 @@ func getOrgRepoCtx(ctx *context.Context) (*OrgRepoCtx, error) {
 	}
 
 	if len(ctx.Org.OrgLink) > 0 {
+		ctx.Data["PageIsOrganizationContext"] = true
 		return &OrgRepoCtx{
 			OrgID:       ctx.Org.Organization.ID,
 			Link:        ctx.Org.OrgLink,
@@ -103,20 +104,25 @@ func WebhooksNew(ctx *context.Context) {
 	ctx.HTML(200, orCtx.NewTemplate)
 }
 
-func ParseHookEvent(form auth.WebhookForm) *models.HookEvent {
+func ParseHookEvent(f form.Webhook) *models.HookEvent {
 	return &models.HookEvent{
-		PushOnly:       form.PushOnly(),
-		SendEverything: form.SendEverything(),
-		ChooseEvents:   form.ChooseEvents(),
+		PushOnly:       f.PushOnly(),
+		SendEverything: f.SendEverything(),
+		ChooseEvents:   f.ChooseEvents(),
 		HookEvents: models.HookEvents{
-			Create:      form.Create,
-			Push:        form.Push,
-			PullRequest: form.PullRequest,
+			Create:       f.Create,
+			Delete:       f.Delete,
+			Fork:         f.Fork,
+			Push:         f.Push,
+			Issues:       f.Issues,
+			IssueComment: f.IssueComment,
+			PullRequest:  f.PullRequest,
+			Release:      f.Release,
 		},
 	}
 }
 
-func WebHooksNewPost(ctx *context.Context, form auth.NewWebhookForm) {
+func WebHooksNewPost(ctx *context.Context, f form.NewWebhook) {
 	ctx.Data["Title"] = ctx.Tr("repo.settings.add_webhook")
 	ctx.Data["PageIsSettingsHooks"] = true
 	ctx.Data["PageIsSettingsHooksNew"] = true
@@ -136,17 +142,17 @@ func WebHooksNewPost(ctx *context.Context, form auth.NewWebhookForm) {
 	}
 
 	contentType := models.JSON
-	if models.HookContentType(form.ContentType) == models.FORM {
+	if models.HookContentType(f.ContentType) == models.FORM {
 		contentType = models.FORM
 	}
 
 	w := &models.Webhook{
 		RepoID:       orCtx.RepoID,
-		URL:          form.PayloadURL,
+		URL:          f.PayloadURL,
 		ContentType:  contentType,
-		Secret:       form.Secret,
-		HookEvent:    ParseHookEvent(form.WebhookForm),
-		IsActive:     form.Active,
+		Secret:       f.Secret,
+		HookEvent:    ParseHookEvent(f.Webhook),
+		IsActive:     f.Active,
 		HookTaskType: models.GOGS,
 		OrgID:        orCtx.OrgID,
 	}
@@ -162,7 +168,7 @@ func WebHooksNewPost(ctx *context.Context, form auth.NewWebhookForm) {
 	ctx.Redirect(orCtx.Link + "/settings/hooks")
 }
 
-func SlackHooksNewPost(ctx *context.Context, form auth.NewSlackHookForm) {
+func SlackHooksNewPost(ctx *context.Context, f form.NewSlackHook) {
 	ctx.Data["Title"] = ctx.Tr("repo.settings")
 	ctx.Data["PageIsSettingsHooks"] = true
 	ctx.Data["PageIsSettingsHooksNew"] = true
@@ -180,10 +186,10 @@ func SlackHooksNewPost(ctx *context.Context, form auth.NewSlackHookForm) {
 	}
 
 	meta, err := json.Marshal(&models.SlackMeta{
-		Channel:  form.Channel,
-		Username: form.Username,
-		IconURL:  form.IconURL,
-		Color:    form.Color,
+		Channel:  f.Channel,
+		Username: f.Username,
+		IconURL:  f.IconURL,
+		Color:    f.Color,
 	})
 	if err != nil {
 		ctx.Handle(500, "Marshal", err)
@@ -192,10 +198,10 @@ func SlackHooksNewPost(ctx *context.Context, form auth.NewSlackHookForm) {
 
 	w := &models.Webhook{
 		RepoID:       orCtx.RepoID,
-		URL:          form.PayloadURL,
+		URL:          f.PayloadURL,
 		ContentType:  models.JSON,
-		HookEvent:    ParseHookEvent(form.WebhookForm),
-		IsActive:     form.Active,
+		HookEvent:    ParseHookEvent(f.Webhook),
+		IsActive:     f.Active,
 		HookTaskType: models.SLACK,
 		Meta:         string(meta),
 		OrgID:        orCtx.OrgID,
@@ -213,7 +219,7 @@ func SlackHooksNewPost(ctx *context.Context, form auth.NewSlackHookForm) {
 }
 
 // FIXME: merge logic to Slack
-func DiscordHooksNewPost(ctx *context.Context, form auth.NewDiscordHookForm) {
+func DiscordHooksNewPost(ctx *context.Context, f form.NewDiscordHook) {
 	ctx.Data["Title"] = ctx.Tr("repo.settings")
 	ctx.Data["PageIsSettingsHooks"] = true
 	ctx.Data["PageIsSettingsHooksNew"] = true
@@ -231,9 +237,9 @@ func DiscordHooksNewPost(ctx *context.Context, form auth.NewDiscordHookForm) {
 	}
 
 	meta, err := json.Marshal(&models.SlackMeta{
-		Username: form.Username,
-		IconURL:  form.IconURL,
-		Color:    form.Color,
+		Username: f.Username,
+		IconURL:  f.IconURL,
+		Color:    f.Color,
 	})
 	if err != nil {
 		ctx.Handle(500, "Marshal", err)
@@ -242,10 +248,10 @@ func DiscordHooksNewPost(ctx *context.Context, form auth.NewDiscordHookForm) {
 
 	w := &models.Webhook{
 		RepoID:       orCtx.RepoID,
-		URL:          form.PayloadURL,
+		URL:          f.PayloadURL,
 		ContentType:  models.JSON,
-		HookEvent:    ParseHookEvent(form.WebhookForm),
-		IsActive:     form.Active,
+		HookEvent:    ParseHookEvent(f.Webhook),
+		IsActive:     f.Active,
 		HookTaskType: models.DISCORD,
 		Meta:         string(meta),
 		OrgID:        orCtx.OrgID,
@@ -279,11 +285,7 @@ func checkWebhook(ctx *context.Context) (*OrgRepoCtx, *models.Webhook) {
 		w, err = models.GetWebhookByOrgID(ctx.Org.Organization.ID, ctx.ParamsInt64(":id"))
 	}
 	if err != nil {
-		if models.IsErrWebhookNotExist(err) {
-			ctx.Handle(404, "GetWebhookByID", nil)
-		} else {
-			ctx.Handle(500, "GetWebhookByID", err)
-		}
+		ctx.NotFoundOrServerError("GetWebhookOfRepoByID/GetWebhookByOrgID", errors.IsWebhookNotExist, err)
 		return nil, nil
 	}
 
@@ -319,7 +321,7 @@ func WebHooksEdit(ctx *context.Context) {
 	ctx.HTML(200, orCtx.NewTemplate)
 }
 
-func WebHooksEditPost(ctx *context.Context, form auth.NewWebhookForm) {
+func WebHooksEditPost(ctx *context.Context, f form.NewWebhook) {
 	ctx.Data["Title"] = ctx.Tr("repo.settings.update_webhook")
 	ctx.Data["PageIsSettingsHooks"] = true
 	ctx.Data["PageIsSettingsHooksEdit"] = true
@@ -336,15 +338,15 @@ func WebHooksEditPost(ctx *context.Context, form auth.NewWebhookForm) {
 	}
 
 	contentType := models.JSON
-	if models.HookContentType(form.ContentType) == models.FORM {
+	if models.HookContentType(f.ContentType) == models.FORM {
 		contentType = models.FORM
 	}
 
-	w.URL = form.PayloadURL
+	w.URL = f.PayloadURL
 	w.ContentType = contentType
-	w.Secret = form.Secret
-	w.HookEvent = ParseHookEvent(form.WebhookForm)
-	w.IsActive = form.Active
+	w.Secret = f.Secret
+	w.HookEvent = ParseHookEvent(f.Webhook)
+	w.IsActive = f.Active
 	if err := w.UpdateEvent(); err != nil {
 		ctx.Handle(500, "UpdateEvent", err)
 		return
@@ -357,7 +359,7 @@ func WebHooksEditPost(ctx *context.Context, form auth.NewWebhookForm) {
 	ctx.Redirect(fmt.Sprintf("%s/settings/hooks/%d", orCtx.Link, w.ID))
 }
 
-func SlackHooksEditPost(ctx *context.Context, form auth.NewSlackHookForm) {
+func SlackHooksEditPost(ctx *context.Context, f form.NewSlackHook) {
 	ctx.Data["Title"] = ctx.Tr("repo.settings")
 	ctx.Data["PageIsSettingsHooks"] = true
 	ctx.Data["PageIsSettingsHooksEdit"] = true
@@ -374,20 +376,20 @@ func SlackHooksEditPost(ctx *context.Context, form auth.NewSlackHookForm) {
 	}
 
 	meta, err := json.Marshal(&models.SlackMeta{
-		Channel:  form.Channel,
-		Username: form.Username,
-		IconURL:  form.IconURL,
-		Color:    form.Color,
+		Channel:  f.Channel,
+		Username: f.Username,
+		IconURL:  f.IconURL,
+		Color:    f.Color,
 	})
 	if err != nil {
 		ctx.Handle(500, "Marshal", err)
 		return
 	}
 
-	w.URL = form.PayloadURL
+	w.URL = f.PayloadURL
 	w.Meta = string(meta)
-	w.HookEvent = ParseHookEvent(form.WebhookForm)
-	w.IsActive = form.Active
+	w.HookEvent = ParseHookEvent(f.Webhook)
+	w.IsActive = f.Active
 	if err := w.UpdateEvent(); err != nil {
 		ctx.Handle(500, "UpdateEvent", err)
 		return
@@ -401,7 +403,7 @@ func SlackHooksEditPost(ctx *context.Context, form auth.NewSlackHookForm) {
 }
 
 // FIXME: merge logic to Slack
-func DiscordHooksEditPost(ctx *context.Context, form auth.NewDiscordHookForm) {
+func DiscordHooksEditPost(ctx *context.Context, f form.NewDiscordHook) {
 	ctx.Data["Title"] = ctx.Tr("repo.settings")
 	ctx.Data["PageIsSettingsHooks"] = true
 	ctx.Data["PageIsSettingsHooksEdit"] = true
@@ -418,19 +420,19 @@ func DiscordHooksEditPost(ctx *context.Context, form auth.NewDiscordHookForm) {
 	}
 
 	meta, err := json.Marshal(&models.SlackMeta{
-		Username: form.Username,
-		IconURL:  form.IconURL,
-		Color:    form.Color,
+		Username: f.Username,
+		IconURL:  f.IconURL,
+		Color:    f.Color,
 	})
 	if err != nil {
 		ctx.Handle(500, "Marshal", err)
 		return
 	}
 
-	w.URL = form.PayloadURL
+	w.URL = f.PayloadURL
 	w.Meta = string(meta)
-	w.HookEvent = ParseHookEvent(form.WebhookForm)
-	w.IsActive = form.Active
+	w.HookEvent = ParseHookEvent(f.Webhook)
+	w.IsActive = f.Active
 	if err := w.UpdateEvent(); err != nil {
 		ctx.Handle(500, "UpdateEvent", err)
 		return
@@ -463,20 +465,24 @@ func TestWebhook(ctx *context.Context) {
 		author, err := models.GetUserByEmail(commit.Author.Email)
 		if err == nil {
 			authorUsername = author.Name
-		} else if !models.IsErrUserNotExist(err) {
-			ctx.Flash.Error(fmt.Sprintf("GetUserByEmail.(author) [%s]: %v", commit.Author.Email, err))
-			ctx.Status(500)
+		} else if !errors.IsUserNotExist(err) {
+			ctx.Handle(500, "GetUserByEmail.(author)", err)
 			return
 		}
 
 		committer, err := models.GetUserByEmail(commit.Committer.Email)
 		if err == nil {
 			committerUsername = committer.Name
-		} else if !models.IsErrUserNotExist(err) {
-			ctx.Flash.Error(fmt.Sprintf("GetUserByEmail.(committer) [%s]: %v", commit.Committer.Email, err))
-			ctx.Status(500)
+		} else if !errors.IsUserNotExist(err) {
+			ctx.Handle(500, "GetUserByEmail.(committer)", err)
 			return
 		}
+	}
+
+	fileStatus, err := commit.FileStatus()
+	if err != nil {
+		ctx.Handle(500, "FileStatus", err)
+		return
 	}
 
 	apiUser := ctx.User.APIFormat()
@@ -499,18 +505,42 @@ func TestWebhook(ctx *context.Context) {
 					Email:    commit.Committer.Email,
 					UserName: committerUsername,
 				},
+				Added:    fileStatus.Added,
+				Removed:  fileStatus.Removed,
+				Modified: fileStatus.Modified,
 			},
 		},
 		Repo:   ctx.Repo.Repository.APIFormat(nil),
 		Pusher: apiUser,
 		Sender: apiUser,
 	}
-	if err := models.TestWebhook(ctx.Repo.Repository, models.HOOK_EVENT_PUSH, p, ctx.QueryInt64("id")); err != nil {
-		ctx.Flash.Error("TestWebhook: " + err.Error())
-		ctx.Status(500)
+	if err := models.TestWebhook(ctx.Repo.Repository, models.HOOK_EVENT_PUSH, p, ctx.ParamsInt64("id")); err != nil {
+		ctx.Handle(500, "TestWebhook", err)
+	} else {
+		ctx.Flash.Info(ctx.Tr("repo.settings.webhook.test_delivery_success"))
+		ctx.Status(200)
+	}
+}
+
+func RedeliveryWebhook(ctx *context.Context) {
+	webhook, err := models.GetWebhookOfRepoByID(ctx.Repo.Repository.ID, ctx.ParamsInt64(":id"))
+	if err != nil {
+		ctx.NotFoundOrServerError("GetWebhookOfRepoByID/GetWebhookByOrgID", errors.IsWebhookNotExist, err)
+		return
+	}
+
+	hookTask, err := models.GetHookTaskOfWebhookByUUID(webhook.ID, ctx.Query("uuid"))
+	if err != nil {
+		ctx.NotFoundOrServerError("GetHookTaskOfWebhookByUUID/GetWebhookByOrgID", errors.IsHookTaskNotExist, err)
+		return
+	}
+
+	hookTask.IsDelivered = false
+	if err = models.UpdateHookTask(hookTask); err != nil {
+		ctx.Handle(500, "UpdateHookTask", err)
 	} else {
 		go models.HookQueue.Add(ctx.Repo.Repository.ID)
-		ctx.Flash.Info(ctx.Tr("repo.settings.webhook.test_delivery_success"))
+		ctx.Flash.Info(ctx.Tr("repo.settings.webhook.redelivery_success", hookTask.UUID))
 		ctx.Status(200)
 	}
 }

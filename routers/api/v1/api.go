@@ -13,8 +13,9 @@ import (
 	api "github.com/gogits/go-gogs-client"
 
 	"github.com/gogits/gogs/models"
-	"github.com/gogits/gogs/modules/auth"
-	"github.com/gogits/gogs/modules/context"
+	"github.com/gogits/gogs/models/errors"
+	"github.com/gogits/gogs/pkg/context"
+	"github.com/gogits/gogs/pkg/form"
 	"github.com/gogits/gogs/routers/api/v1/admin"
 	"github.com/gogits/gogs/routers/api/v1/misc"
 	"github.com/gogits/gogs/routers/api/v1/org"
@@ -33,12 +34,12 @@ func repoAssignment() macaron.Handler {
 		)
 
 		// Check if the user is the same as the repository owner.
-		if ctx.IsSigned && ctx.User.LowerName == strings.ToLower(userName) {
+		if ctx.IsLogged && ctx.User.LowerName == strings.ToLower(userName) {
 			owner = ctx.User
 		} else {
 			owner, err = models.GetUserByName(userName)
 			if err != nil {
-				if models.IsErrUserNotExist(err) {
+				if errors.IsUserNotExist(err) {
 					ctx.Status(404)
 				} else {
 					ctx.Error(500, "GetUserByName", err)
@@ -51,7 +52,7 @@ func repoAssignment() macaron.Handler {
 		// Get repository.
 		repo, err := models.GetRepositoryByName(owner.ID, repoName)
 		if err != nil {
-			if models.IsErrRepoNotExist(err) {
+			if errors.IsRepoNotExist(err) {
 				ctx.Status(404)
 			} else {
 				ctx.Error(500, "GetRepositoryByName", err)
@@ -62,7 +63,7 @@ func repoAssignment() macaron.Handler {
 			return
 		}
 
-		if ctx.IsSigned && ctx.User.IsAdmin {
+		if ctx.IsLogged && ctx.User.IsAdmin {
 			ctx.Repo.AccessMode = models.ACCESS_MODE_OWNER
 		} else {
 			mode, err := models.AccessLevel(ctx.User.ID, repo)
@@ -85,7 +86,7 @@ func repoAssignment() macaron.Handler {
 // Contexter middleware already checks token for user sign in process.
 func reqToken() macaron.Handler {
 	return func(ctx *context.Context) {
-		if !ctx.IsSigned {
+		if !ctx.IsLogged {
 			ctx.Error(401)
 			return
 		}
@@ -103,7 +104,7 @@ func reqBasicAuth() macaron.Handler {
 
 func reqAdmin() macaron.Handler {
 	return func(ctx *context.Context) {
-		if !ctx.IsSigned || !ctx.User.IsAdmin {
+		if !ctx.IsLogged || !ctx.User.IsAdmin {
 			ctx.Error(403)
 			return
 		}
@@ -137,7 +138,7 @@ func orgAssignment(args ...bool) macaron.Handler {
 		if assignOrg {
 			ctx.Org.Organization, err = models.GetUserByName(ctx.Params(":orgname"))
 			if err != nil {
-				if models.IsErrUserNotExist(err) {
+				if errors.IsUserNotExist(err) {
 					ctx.Status(404)
 				} else {
 					ctx.Error(500, "GetUserByName", err)
@@ -149,7 +150,7 @@ func orgAssignment(args ...bool) macaron.Handler {
 		if assignTeam {
 			ctx.Org.Team, err = models.GetTeamByID(ctx.ParamsInt64(":teamid"))
 			if err != nil {
-				if models.IsErrUserNotExist(err) {
+				if errors.IsUserNotExist(err) {
 					ctx.Status(404)
 				} else {
 					ctx.Error(500, "GetTeamById", err)
@@ -173,6 +174,9 @@ func RegisterRoutes(m *macaron.Macaron) {
 	bind := binding.Bind
 
 	m.Group("/v1", func() {
+		// Handle preflight OPTIONS request
+		m.Options("/*", func() {})
+
 		// Miscellaneous
 		m.Post("/markdown", bind(api.MarkdownOption{}), misc.Markdown)
 		m.Post("/markdown/raw", misc.MarkdownRaw)
@@ -237,8 +241,8 @@ func RegisterRoutes(m *macaron.Macaron) {
 		})
 
 		m.Group("/repos", func() {
-			m.Post("/migrate", bind(auth.MigrateRepoForm{}), repo.Migrate)
-			m.Combo("/:username/:reponame").Get(repo.Get).
+			m.Post("/migrate", bind(form.MigrateRepo{}), repo.Migrate)
+			m.Combo("/:username/:reponame", repoAssignment()).Get(repo.Get).
 				Delete(repo.Delete)
 
 			m.Group("/:username/:reponame", func() {
@@ -258,7 +262,7 @@ func RegisterRoutes(m *macaron.Macaron) {
 				m.Get("/forks", repo.ListForks)
 				m.Group("/branches", func() {
 					m.Get("", repo.ListBranches)
-					m.Get("/:branchname", repo.GetBranch)
+					m.Get("/*", repo.GetBranch)
 				})
 				m.Group("/keys", func() {
 					m.Combo("").Get(repo.ListDeployKeys).
@@ -304,6 +308,7 @@ func RegisterRoutes(m *macaron.Macaron) {
 						Patch(reqRepoWriter(), bind(api.EditMilestoneOption{}), repo.EditMilestone).
 						Delete(reqRepoWriter(), repo.DeleteMilestone)
 				})
+				m.Post("/mirror-sync", repo.MirrorSync)
 				m.Get("/editorconfig/:filename", context.RepoRef(), repo.GetEditorconfig)
 			}, repoAssignment())
 		}, reqToken())

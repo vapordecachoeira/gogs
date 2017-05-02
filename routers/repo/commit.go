@@ -11,17 +11,18 @@ import (
 	"github.com/gogits/git-module"
 
 	"github.com/gogits/gogs/models"
-	"github.com/gogits/gogs/modules/base"
-	"github.com/gogits/gogs/modules/context"
-	"github.com/gogits/gogs/modules/setting"
+	"github.com/gogits/gogs/pkg/context"
+	"github.com/gogits/gogs/pkg/setting"
+	"github.com/gogits/gogs/pkg/tool"
 )
 
 const (
-	COMMITS base.TplName = "repo/commits"
-	DIFF    base.TplName = "repo/diff/page"
+	COMMITS = "repo/commits"
+	DIFF    = "repo/diff/page"
 )
 
 func RefCommits(ctx *context.Context) {
+	ctx.Data["PageIsViewFiles"] = true
 	switch {
 	case len(ctx.Repo.TreePath) == 0:
 		Commits(ctx)
@@ -51,7 +52,7 @@ func renderCommits(ctx *context.Context, filename string) {
 	}
 	pageSize := ctx.QueryInt("pageSize")
 	if pageSize < 1 {
-		pageSize = git.DEFAULT_COMMITS_PAGE_SIZE
+		pageSize = git.DefaultCommitsPageSize
 	}
 
 	// Both 'git log branchName' and 'git log commitID' work.
@@ -140,7 +141,7 @@ func Diff(ctx *context.Context) {
 		commitID, setting.Git.MaxGitDiffLines,
 		setting.Git.MaxGitDiffLineCharacters, setting.Git.MaxGitDiffFiles)
 	if err != nil {
-		ctx.Handle(404, "GetDiffCommit", err)
+		ctx.NotFoundOrServerError("GetDiffCommit", git.IsErrNotExist, err)
 		return
 	}
 
@@ -164,28 +165,28 @@ func Diff(ctx *context.Context) {
 	ctx.Data["Username"] = userName
 	ctx.Data["Reponame"] = repoName
 	ctx.Data["IsImageFile"] = commit.IsImageFile
-	ctx.Data["Title"] = commit.Summary() + " · " + base.ShortSha(commitID)
+	ctx.Data["Title"] = commit.Summary() + " · " + tool.ShortSHA1(commitID)
 	ctx.Data["Commit"] = commit
 	ctx.Data["Author"] = models.ValidateCommitWithEmail(commit)
 	ctx.Data["Diff"] = diff
 	ctx.Data["Parents"] = parents
 	ctx.Data["DiffNotAvailable"] = diff.NumFiles() == 0
-	ctx.Data["SourcePath"] = setting.AppSubUrl + "/" + path.Join(userName, repoName, "src", commitID)
+	ctx.Data["SourcePath"] = setting.AppSubURL + "/" + path.Join(userName, repoName, "src", commitID)
 	if commit.ParentCount() > 0 {
-		ctx.Data["BeforeSourcePath"] = setting.AppSubUrl + "/" + path.Join(userName, repoName, "src", parents[0])
+		ctx.Data["BeforeSourcePath"] = setting.AppSubURL + "/" + path.Join(userName, repoName, "src", parents[0])
 	}
-	ctx.Data["RawPath"] = setting.AppSubUrl + "/" + path.Join(userName, repoName, "raw", commitID)
+	ctx.Data["RawPath"] = setting.AppSubURL + "/" + path.Join(userName, repoName, "raw", commitID)
 	ctx.HTML(200, DIFF)
 }
 
-func RawDiff(ctx *context.Context) {
-	if err := models.GetRawDiff(
-		models.RepoPath(ctx.Repo.Owner.Name, ctx.Repo.Repository.Name),
-		ctx.Params(":sha"),
-		models.RawDiffType(ctx.Params(":ext")),
-		ctx.Resp,
+func RawDiff(c *context.Context) {
+	if err := git.GetRawDiff(
+		models.RepoPath(c.Repo.Owner.Name, c.Repo.Repository.Name),
+		c.Params(":sha"),
+		git.RawDiffType(c.Params(":ext")),
+		c.Resp,
 	); err != nil {
-		ctx.Handle(500, "GetRawDiff", err)
+		c.NotFoundOrServerError("GetRawDiff", git.IsErrNotExist, err)
 		return
 	}
 }
@@ -227,12 +228,12 @@ func CompareDiff(ctx *context.Context) {
 	ctx.Data["Username"] = userName
 	ctx.Data["Reponame"] = repoName
 	ctx.Data["IsImageFile"] = commit.IsImageFile
-	ctx.Data["Title"] = "Comparing " + base.ShortSha(beforeCommitID) + "..." + base.ShortSha(afterCommitID) + " · " + userName + "/" + repoName
+	ctx.Data["Title"] = "Comparing " + tool.ShortSHA1(beforeCommitID) + "..." + tool.ShortSHA1(afterCommitID) + " · " + userName + "/" + repoName
 	ctx.Data["Commit"] = commit
 	ctx.Data["Diff"] = diff
 	ctx.Data["DiffNotAvailable"] = diff.NumFiles() == 0
-	ctx.Data["SourcePath"] = setting.AppSubUrl + "/" + path.Join(userName, repoName, "src", afterCommitID)
-	ctx.Data["BeforeSourcePath"] = setting.AppSubUrl + "/" + path.Join(userName, repoName, "src", beforeCommitID)
-	ctx.Data["RawPath"] = setting.AppSubUrl + "/" + path.Join(userName, repoName, "raw", afterCommitID)
+	ctx.Data["SourcePath"] = setting.AppSubURL + "/" + path.Join(userName, repoName, "src", afterCommitID)
+	ctx.Data["BeforeSourcePath"] = setting.AppSubURL + "/" + path.Join(userName, repoName, "src", beforeCommitID)
+	ctx.Data["RawPath"] = setting.AppSubURL + "/" + path.Join(userName, repoName, "raw", afterCommitID)
 	ctx.HTML(200, DIFF)
 }

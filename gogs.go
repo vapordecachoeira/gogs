@@ -24,8 +24,8 @@ func init() {
 
 func main() {
 	app := cli.NewApp()
-	app.Name = "Gogs"
-	app.Usage = "A painless self-hosted Git service"
+	app.Name = "Open Source Fashion"
+	app.Usage = "The collaborative fashion platform"
 	app.Version = APP_VER
 	app.Commands = []cli.Command{
 		cmd.Web,
